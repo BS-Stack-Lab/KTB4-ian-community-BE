@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.12
 
-ARG JDK_IMAGE=eclipse-temurin:21-jdk-noble
-ARG JRE_IMAGE=eclipse-temurin:21-jre-noble
+ARG JDK_IMAGE=eclipse-temurin:21-jdk-noble@sha256:35685c7e23352983a48882d97cd9875f5284c228db71d1e2476e5e6c1bab1080
+ARG JRE_IMAGE=eclipse-temurin:21-jre-noble@sha256:373787d1d45a87f084fda43e7de0e9acf5eedee049446efac738f13587ec4c64
 
 FROM ${JDK_IMAGE} AS builder
 
