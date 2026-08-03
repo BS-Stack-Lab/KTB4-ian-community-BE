@@ -1,0 +1,7 @@
+RELEASE_ID=2026-08-03-001
+FRONTEND_COMMIT=<frontend-commit-sha>
+BACKEND_COMMIT=<backend-commit-sha>
+FRONTEND_IMAGE=community-frontend:<frontend-commit-sha>
+BACKEND_IMAGE=community-backend:<backend-commit-sha>
+MYSQL_IMAGE=mysql:8.4.7
+DEPLOYED_AT=<UTC-ISO-8601-timestamp>

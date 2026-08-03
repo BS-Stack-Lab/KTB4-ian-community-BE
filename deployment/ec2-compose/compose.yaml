@@ -1,0 +1,166 @@
+name: community
+
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:?Set MYSQL_IMAGE to a fixed MySQL 8.4 tag}
+    pull_policy: missing
+    user: "999:999"
+    group_add:
+      - "20000"
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-community}
+      MYSQL_USER: ${DB_USERNAME:-community}
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql-root-password
+      MYSQL_PASSWORD_FILE: /run/secrets/mysql-app-password
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --max-connections=40
+      - --innodb-buffer-pool-size=320M
+      - --performance-schema=OFF
+    secrets:
+      - source: mysql_root_password
+        target: mysql-root-password
+      - source: mysql_app_password
+        target: mysql-app-password
+    volumes:
+      - type: bind
+        source: ${DATA_ROOT:-/data/community}/mysql
+        target: /var/lib/mysql
+    expose:
+      - "3306"
+    networks:
+      - community
+    restart: unless-stopped
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--host=127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 640m
+    cpus: 0.75
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,uid=999,gid=999
+    logging: &default-logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  backend:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to a commit-tagged image}
+    pull_policy: never
+    user: "10001:10001"
+    group_add:
+      - "20000"
+    environment:
+      SPRING_PROFILES_ACTIVE: aws
+      SPRING_CONFIG_IMPORT: optional:configtree:/run/secrets/
+      SERVER_ADDRESS: 0.0.0.0
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-community}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+      DB_USERNAME: ${DB_USERNAME:-community}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-8}
+      DB_POOL_MIN_IDLE: ${DB_POOL_MIN_IDLE:-1}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?Set FRONTEND_ORIGIN to the public origin}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xms256m -Xmx640m -XX:+ExitOnOutOfMemoryError}
+      TZ: UTC
+    secrets:
+      - source: mysql_app_password
+        target: DB_PASSWORD
+      - source: jwt_secret
+        target: JWT_SECRET
+    volumes:
+      - type: bind
+        source: ${DATA_ROOT:-/data/community}/uploads
+        target: /var/lib/community/uploads
+    expose:
+      - "8080"
+    networks:
+      - community
+    depends_on:
+      mysql:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 900m
+    cpus: 1.0
+    healthcheck:
+      test:
+        - CMD
+        - env
+        - -u
+        - JAVA_TOOL_OPTIONS
+        - java
+        - -Xms16m
+        - -Xmx32m
+        - -cp
+        - /app/healthcheck
+        - HealthCheck
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
+    logging: *default-logging
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?Set FRONTEND_IMAGE to a commit-tagged image}
+    pull_policy: never
+    ports:
+      - "${HTTP_BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}:80"
+    networks:
+      - community
+    depends_on:
+      backend:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,uid=101,gid=101
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    pids_limit: 128
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
+
+networks:
+  community:
+    driver: bridge
+
+secrets:
+  mysql_root_password:
+    file: ${SECRETS_DIR:-/etc/community/secrets}/mysql-root-password
+  mysql_app_password:
+    file: ${SECRETS_DIR:-/etc/community/secrets}/mysql-app-password
+  jwt_secret:
+    file: ${SECRETS_DIR:-/etc/community/secrets}/jwt-secret

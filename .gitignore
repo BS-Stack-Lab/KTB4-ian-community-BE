@@ -63,3 +63,8 @@ backend.env.*
 *.dump
 *.tar.gz
 /evidence/private/
+
+# EC2 Compose runtime state and release inputs
+/deployment/ec2-compose/.env
+/deployment/ec2-compose/release-manifest
+/deployment/ec2-compose/artifacts/
