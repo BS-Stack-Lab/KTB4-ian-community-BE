@@ -1,6 +1,7 @@
 server:
-  address: 127.0.0.1
+  address: ${SERVER_ADDRESS:127.0.0.1}
   port: 8080
+  shutdown: graceful
   forward-headers-strategy: framework
   error:
     include-message: never
@@ -40,6 +41,19 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 11MB
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
 
 app:
   frontend-origin: ${FRONTEND_ORIGIN}

@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AwsDeploymentConfigurationTest {
 
     @Test
-    void awsProfileUsesLoopbackMysqlAndSafeJpaSettings()
+    void awsProfileSupportsAAndBNetworkingWithSafeJpaSettings()
             throws Exception {
         List<PropertySource<?>> propertySources =
                 new YamlPropertySourceLoader().load(
@@ -26,7 +26,7 @@ class AwsDeploymentConfigurationTest {
                 propertySources.getFirst();
 
         assertThat(properties.getProperty("server.address"))
-                .isEqualTo("127.0.0.1");
+                .isEqualTo("${SERVER_ADDRESS:127.0.0.1}");
         assertThat(properties.getProperty(
                 "spring.datasource.driver-class-name"
         )).isEqualTo("com.mysql.cj.jdbc.Driver");
@@ -39,6 +39,12 @@ class AwsDeploymentConfigurationTest {
         assertThat(properties.getProperty(
                 "spring.h2.console.enabled"
         )).isEqualTo(false);
+        assertThat(properties.getProperty(
+                "management.endpoints.web.exposure.include"
+        )).isEqualTo("health");
+        assertThat(properties.getProperty(
+                "management.endpoint.health.show-details"
+        )).isEqualTo("never");
     }
 
     @Test

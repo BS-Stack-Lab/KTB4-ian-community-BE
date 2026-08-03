@@ -80,6 +80,7 @@ public class SecurityConfig {
                                         "/api/users/signup",
                                         "/api/users/refresh",
                                         "/api/users/logout",
+                                        "/actuator/health",
                                         "/error",
                                         "/css/**",
                                         "/js/**",
