@@ -29,7 +29,10 @@ for key in FRONTEND_IMAGE BACKEND_IMAGE MYSQL_IMAGE; do
   archive_name="${image//\//-}"
   archive_name="${archive_name//:/-}.tar"
   archive_path="${output_dir}/${archive_name}"
-  docker save --output "${archive_path}" "${image}"
+  docker image save \
+    --platform linux/amd64 \
+    --output "${archive_path}" \
+    "${image}"
   if command -v sha256sum >/dev/null 2>&1; then
     (
       cd "${output_dir}"
