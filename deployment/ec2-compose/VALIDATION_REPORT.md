@@ -11,8 +11,8 @@ Compose Project에서 검증했다. Apple Silicon Host에서 EC2 대상
 
 검증 Image:
 
-- Backend: `community-backend:31f251c`
-- Frontend: `community-frontend:dc3c8d0`
+- Backend: `community-backend:a2b2e5a`
+- Frontend: `community-frontend:296b311`
 - MySQL: `mysql:8.4.7`
 
 테스트용 Secret과 데이터는 임시 디렉터리만 사용했으며 검증 후 Container,
@@ -25,8 +25,9 @@ Network, 데이터와 Secret 파일을 삭제했다. 운영 Secret은 사용하�
 |---|---|---|
 | Backend Source Test | PASS | Gradle 57 tests, failures·errors·skipped 0 |
 | Frontend Format | PASS | Prettier 대상 전체 통과 |
-| Frontend Unit Test | PASS | 33 files, 125 tests |
+| Frontend Unit Test | PASS | 34 files, 127 tests |
 | Frontend Integration Test | PASS | 10 files, 19 tests |
+| Frontend UI Test | PASS | Playwright 108 tests 중 99개 1차 통과, macOS `ERR_NETWORK_IO_SUSPENDED` 영향 9개를 단일 Worker로 재실행해 전부 통과 |
 | Frontend Production Build | PASS/WARN | Webpack Build 성공, 기존 대용량 Asset 경고 3건 |
 | Backend 멀티스테이지 Build | PASS | JDK builder에서 Test·Boot JAR 생성 후 JRE runtime으로 복사, `linux/amd64` Image 생성 |
 | Frontend 멀티스테이지 Build | PASS | Node builder에서 React Production Build 후 Nginx runtime으로 정적 산출물만 복사 |
@@ -51,9 +52,9 @@ Network, 데이터와 Secret 파일을 삭제했다. 운영 Secret은 사용하�
 
 | Service | Memory | Limit | Usage |
 |---|---:|---:|---:|
-| MySQL | 297.4 MiB | 640 MiB | 46.47% |
-| Backend | 522.9 MiB | 900 MiB | 58.10% |
-| Frontend | 16.8 MiB | 128 MiB | 13.13% |
+| MySQL | 311.6 MiB | 640 MiB | 48.68% |
+| Backend | 537.4 MiB | 900 MiB | 59.71% |
+| Frontend | 17.7 MiB | 128 MiB | 13.82% |
 
 이 수치는 Apple Silicon의 amd64 에뮬레이션 환경에서 한 번 측정한
 Snapshot이므로 EC2 성능 결론으로 사용하지 않는다. 실제 EC2에서는 B 방식
