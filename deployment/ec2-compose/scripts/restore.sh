@@ -55,8 +55,10 @@ compose_cmd "${release_env}" stop backend
 
 if ! gzip -dc "${restore_stage}/database.sql.gz" |
   compose_cmd "${release_env}" exec -T mysql sh -ec '
-    export MYSQL_PWD="$(cat /run/secrets/mysql-app-password)"
-    exec mysql --user="$MYSQL_USER"
+    export MYSQL_PWD="$(cat /run/secrets/mysql-root-password)"
+    exec mysql \
+      --user=root \
+      --database="$MYSQL_DATABASE"
   '; then
   echo "Database restore failed; backend remains stopped." >&2
   exit 1
