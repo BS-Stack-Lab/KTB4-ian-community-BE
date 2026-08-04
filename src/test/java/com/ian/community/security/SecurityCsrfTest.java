@@ -68,6 +68,19 @@ class SecurityCsrfTest {
 
     @Test
     @DisplayName(
+            "H2 Console이 비활성화되면 공개 경로로 허용하지 않는다"
+    )
+    void disabledH2ConsoleIsNotPublic() throws Exception {
+        mockMvc.perform(
+                        get("/h2-console/")
+                )
+                .andExpect(
+                        status().isUnauthorized()
+                );
+    }
+
+    @Test
+    @DisplayName(
             "CSRF 토큰 없이 로그인 요청 시 403을 반환한다"
     )
     void loginWithoutCsrfToken()

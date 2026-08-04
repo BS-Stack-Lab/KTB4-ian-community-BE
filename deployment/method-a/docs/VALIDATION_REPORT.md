@@ -14,7 +14,7 @@
 | H2 Migration | PASS | 일반 local 실행과 분리하고 Migration 통합 테스트에서만 H2 SQL 적용 |
 | Local H2 Console | PASS | local에서만 활성 |
 | Test H2 Console | PASS | 비활성 Profile에서 인증 없이 공개되지 않음 |
-| Backend Test | PASS | 53 tests, failures/errors/skipped 0 |
+| Backend Test | PASS | 57 tests, failures/errors/skipped 0 |
 | Backend JAR | PASS | `clean test bootJar` 성공 |
 | Frontend Format | PASS | Prettier check 성공 |
 | Frontend Unit | PASS | 125 tests |

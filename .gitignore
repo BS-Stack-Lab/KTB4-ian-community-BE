@@ -68,3 +68,7 @@ backend.env.*
 /deployment/ec2-compose/.env
 /deployment/ec2-compose/release-manifest
 /deployment/ec2-compose/artifacts/
+
+# Legacy EC2 deployment environment files
+deploy/env/*.env
+!deploy/env/*.env.example

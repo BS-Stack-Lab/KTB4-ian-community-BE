@@ -47,8 +47,18 @@ class MigrationIntegrationTest {
                 """,
                 Integer.class
         );
+        Integer activeLegacyUserCount = jdbcTemplate.queryForObject(
+                """
+                select count(*)
+                from users
+                where email = 'email@email.com'
+                  and user_deleted = false
+                """,
+                Integer.class
+        );
 
         assertThat(tableCount).isOne();
         assertThat(constraintCount).isOne();
+        assertThat(activeLegacyUserCount).isZero();
     }
 }

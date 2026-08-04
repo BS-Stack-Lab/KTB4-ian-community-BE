@@ -23,7 +23,7 @@ Network, 데이터와 Secret 파일을 삭제했다. 운영 Secret은 사용하�
 
 | Control | Status | Evidence |
 |---|---|---|
-| Backend Source Test | PASS | Gradle 53 tests, failures·errors·skipped 0 |
+| Backend Source Test | PASS | Gradle 57 tests, failures·errors·skipped 0 |
 | Frontend Format | PASS | Prettier 대상 전체 통과 |
 | Frontend Unit Test | PASS | 33 files, 125 tests |
 | Frontend Integration Test | PASS | 10 files, 19 tests |
