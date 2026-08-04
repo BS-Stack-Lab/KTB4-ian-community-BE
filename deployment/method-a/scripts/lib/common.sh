@@ -9,6 +9,8 @@ readonly BACKEND_ROOT="/opt/community/backend"
 readonly FRONTEND_ROOT="/opt/community/frontend"
 readonly OPERATIONS_ROOT="/opt/community/deployment/method-a"
 readonly ENV_FILE="/etc/community/backend.env"
+readonly DOMAIN_FILE="/etc/community/domain.env"
+readonly DYNU_ENV_FILE="/etc/community/dynu.env"
 
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -82,6 +84,123 @@ is_valid_http_origin() {
     local port_number=$((10#${port}))
     ((port_number >= 1 && port_number <= 65535)) || return 1
   fi
+}
+
+is_valid_hostname() {
+  local hostname="$1"
+  local label
+  local -a labels
+
+  if [[ -z "${hostname}" || "${#hostname}" -gt 253 ||
+    ! "${hostname}" =~ ^[A-Za-z0-9.-]+$ ||
+    "${hostname}" == .* || "${hostname}" == *. ||
+    "${hostname}" == *..* ]]; then
+    return 1
+  fi
+
+  IFS='.' read -r -a labels <<<"${hostname}"
+  if [[ "${#labels[@]}" -lt 2 ]]; then
+    return 1
+  fi
+
+  for label in "${labels[@]}"; do
+    if [[ -z "${label}" || "${#label}" -gt 63 ||
+      "${label}" == -* || "${label}" == *- ]]; then
+      return 1
+    fi
+  done
+}
+
+is_hostname_with_label() {
+  local hostname="$1"
+  local expected_label="$2"
+
+  is_valid_hostname "${hostname}" &&
+    [[ "${expected_label}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] &&
+    [[ "${hostname%%.*}" == "${expected_label}" ]]
+}
+
+is_valid_sha256_hash() {
+  local value="$1"
+
+  [[ "${value}" =~ ^[0-9a-f]{64}$ ]]
+}
+
+is_successful_dynu_response() {
+  local response="$1"
+
+  case "${response}" in
+    good | good\ * | nochg | nochg\ *)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+is_valid_ipv4() {
+  local address="$1"
+  local octet
+  local -a octets
+
+  if [[ ! "${address}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    return 1
+  fi
+
+  IFS='.' read -r -a octets <<<"${address}"
+  for octet in "${octets[@]}"; do
+    if [[ "${#octet}" -gt 3 ]] ||
+      [[ "${#octet}" -gt 1 && "${octet}" == 0* ]] ||
+      ((10#${octet} > 255)); then
+      return 1
+    fi
+  done
+}
+
+read_config_value() {
+  local file_path="$1"
+  local key="$2"
+
+  awk -v key="${key}" '
+    index($0, key "=") == 1 {
+      count += 1
+      value = substr($0, length(key) + 2)
+    }
+    END {
+      if (count != 1 || value == "") {
+        exit 1
+      }
+      print value
+    }
+  ' "${file_path}"
+}
+
+ec2_public_ipv4() {
+  local metadata_token
+  local public_ipv4
+
+  metadata_token="$(
+    curl --fail --silent --show-error \
+      --connect-timeout 2 \
+      --max-time 5 \
+      --noproxy '*' \
+      --request PUT \
+      --header 'X-aws-ec2-metadata-token-ttl-seconds: 60' \
+      http://169.254.169.254/latest/api/token
+  )" || return 1
+
+  public_ipv4="$(
+    curl --fail --silent --show-error \
+      --connect-timeout 2 \
+      --max-time 5 \
+      --noproxy '*' \
+      --header "X-aws-ec2-metadata-token: ${metadata_token}" \
+      http://169.254.169.254/latest/meta-data/public-ipv4
+  )" || return 1
+
+  is_valid_ipv4 "${public_ipv4}" || return 1
+  printf '%s\n' "${public_ipv4}"
 }
 
 is_valid_jwt_secret() {

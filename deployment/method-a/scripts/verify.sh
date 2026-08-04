@@ -7,6 +7,8 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 require_root
 require_command curl
+require_command getent
+require_command openssl
 require_command ss
 require_command stat
 require_file "${ENV_FILE}"
@@ -113,6 +115,111 @@ if find "${COMMUNITY_ROOT}/uploads" -perm -0002 -print -quit |
   fail "Uploads contain world-writable paths"
 else
   pass "Uploads are not world-writable"
+fi
+
+if [[ -f "${DOMAIN_FILE}" ]]; then
+  community_domain="$(read_config_value "${DOMAIN_FILE}" COMMUNITY_DOMAIN)" || {
+    community_domain=""
+    fail "Domain configuration contains exactly one non-empty value"
+  }
+
+  if [[ -n "${community_domain}" ]] &&
+    is_valid_hostname "${community_domain}"; then
+    pass "Community domain format"
+  else
+    fail "Community domain format"
+  fi
+
+  if file_has_exact_metadata "${DOMAIN_FILE}" root root 644; then
+    pass "Domain configuration ownership and permissions"
+  else
+    fail "Domain configuration must be root:root with mode 644"
+  fi
+
+  if file_has_exact_metadata "${DYNU_ENV_FILE}" root root 600; then
+    pass "Dynu credential ownership and permissions"
+  else
+    fail "Dynu credentials must be root:root with mode 600"
+  fi
+
+  if [[ -f "${DYNU_ENV_FILE}" ]]; then
+    dynu_hostname="$(
+      read_config_value "${DYNU_ENV_FILE}" DYNU_HOSTNAME
+    )" || dynu_hostname=""
+    dynu_password_sha256="$(
+      read_config_value "${DYNU_ENV_FILE}" DYNU_PASSWORD_SHA256
+    )" || dynu_password_sha256=""
+
+    if [[ "${dynu_hostname}" == "${community_domain}" ]] &&
+      is_hostname_with_label "${dynu_hostname}" pulse &&
+      is_valid_sha256_hash "${dynu_password_sha256}"; then
+      pass "Dynu pulse hostname and password hash configuration"
+    else
+      fail "Dynu hostname or password hash configuration"
+    fi
+    unset dynu_password_sha256
+  fi
+
+  for timer_name in community-dynu.timer certbot.timer; do
+    if systemctl is-active --quiet "${timer_name}"; then
+      pass "${timer_name} is active"
+    else
+      fail "${timer_name} is not active"
+    fi
+  done
+
+  if [[ -n "${community_domain}" ]]; then
+    certificate_path="/etc/letsencrypt/live/${community_domain}/cert.pem"
+    if [[ -f "${certificate_path}" ]] &&
+      openssl x509 -checkend 604800 -noout \
+        -in "${certificate_path}" >/dev/null 2>&1; then
+      pass "TLS certificate is valid for more than seven days"
+    else
+      fail "TLS certificate is missing or expires within seven days"
+    fi
+
+    if grep -Fqx \
+      "FRONTEND_ORIGIN=https://${community_domain}" \
+      "${ENV_FILE}" &&
+      grep -Fqx "COOKIE_SECURE=true" "${ENV_FILE}"; then
+      pass "Backend origin and secure cookie use HTTPS"
+    else
+      fail "Backend origin or secure cookie does not match HTTPS domain"
+    fi
+
+    if curl --fail --silent --show-error \
+      --output /dev/null \
+      --resolve "${community_domain}:443:127.0.0.1" \
+      "https://${community_domain}/healthz"; then
+      pass "HTTPS health endpoint and certificate trust"
+    else
+      fail "HTTPS health endpoint or certificate trust"
+    fi
+
+    redirect_result="$(
+      curl --silent --show-error \
+        --output /dev/null \
+        --write-out '%{http_code} %{redirect_url}' \
+        --resolve "${community_domain}:80:127.0.0.1" \
+        "http://${community_domain}/healthz"
+    )" || redirect_result=""
+    if [[ "${redirect_result}" == \
+      "301 https://${community_domain}/healthz" ]]; then
+      pass "HTTP redirects to the canonical HTTPS domain"
+    else
+      fail "HTTP does not redirect to the canonical HTTPS domain"
+    fi
+
+    current_public_ipv4="$(ec2_public_ipv4)" || current_public_ipv4=""
+    if [[ -n "${current_public_ipv4}" ]] &&
+      getent ahostsv4 "${community_domain}" |
+        awk '{ print $1 }' |
+        grep -Fqx "${current_public_ipv4}"; then
+      pass "Dynu resolves to the current EC2 public IPv4"
+    else
+      fail "Dynu does not resolve to the current EC2 public IPv4"
+    fi
+  fi
 fi
 
 if [[ "${failures}" -ne 0 ]]; then

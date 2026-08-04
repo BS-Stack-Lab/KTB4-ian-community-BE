@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh the Community Dynu record every ten minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=10min
+AccuracySec=30s
+Unit=community-dynu.service
+
+[Install]
+WantedBy=timers.target

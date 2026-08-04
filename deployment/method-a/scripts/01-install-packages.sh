@@ -13,12 +13,14 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates \
+  certbot \
   curl \
   gzip \
   mysql-client \
   mysql-server \
   nginx \
   openjdk-21-jdk-headless \
+  openssl \
   rsync \
   tar
 

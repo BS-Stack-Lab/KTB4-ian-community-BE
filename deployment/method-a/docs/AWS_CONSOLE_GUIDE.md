@@ -53,9 +53,9 @@ Budget는 강제 지출 제한이 아니며 결제 데이터 반영이 지연될
 
 배포 검증 직전 다음 규칙만 검토한다.
 
-- HTTP 80: 테스트에 필요한 범위만. 공개 서비스 전환 시에만
-  `0.0.0.0/0`
-- HTTPS 443: 인증서 적용 후에만 `0.0.0.0/0`
+- HTTP 80: Dynu·Let's Encrypt 적용 시 `0.0.0.0/0`. HTTP-01 인증과
+  HTTPS Redirect에 계속 필요
+- HTTPS 443: 공개 HTTPS 적용 시 `0.0.0.0/0`
 - SSH 22: 기본적으로 없음
 - 8080, 3306: 절대 추가하지 않음
 - IPv6를 사용하지 않으면 `::/0` 규칙을 추가하지 않음
@@ -96,6 +96,8 @@ Tags:
 - User Data, Tag, Name에 Secret이나 개인정보를 입력하지 않는다.
 - Key, 실제 환경 파일, DB/JWT Secret을 캡처하거나 공유하지 않는다.
 - Public IPv4는 고정되지 않으며 Stop/Start 후 변경될 수 있다.
+- Dynu 적용 후에는 systemd Timer가 바뀐 Public IPv4를 같은 `pulse` Host에
+  반영한다. Dynu IP Update Password나 Hash는 Tag·User Data에 넣지 않는다.
 - 22·8080·3306의 외부 공개는 완료 차단 `FAIL`이다.
 
 비용 영향:

@@ -1,5 +1,8 @@
 # EC2 Docker Compose deployment (B method)
 
+재현 가능한 로컬 Compose 런타임 검증 결과는
+[`VALIDATION_REPORT.md`](./VALIDATION_REPORT.md)에 기록한다.
+
 This directory operates one Ubuntu 24.04 `linux/amd64` EC2 instance with three
 containers. Only the frontend Nginx port is published. The backend and MySQL are
 reachable only by service name on the Compose bridge network.

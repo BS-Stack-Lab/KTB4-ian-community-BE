@@ -1,9 +1,9 @@
 # Method A 검증 보고서
 
-작성일: 2026-08-03
+작성일: 2026-08-04
 
-이 보고서는 로컬 검증 결과와 AWS 수동 검증 대기 항목을 구분한다.
-AWS/EC2 상태는 사용자가 제공한 마스킹 결과 없이 추측하지 않는다.
+이 보고서는 로컬 검증 결과와 AWS/EC2에서 사용자가 확인한 결과를 구분한다.
+운영 Secret과 개인 데이터는 증빙에 기록하지 않는다.
 
 ## Local
 
@@ -28,7 +28,7 @@ AWS/EC2 상태는 사용자가 제공한 마스킹 결과 없이 추측하지 �
 | ShellCheck | WARN | 로컬 명령 미설치로 미실행 |
 | Source Map | PASS | Production Build에 `.map` 미생성 |
 | Diff whitespace | PASS | Backend와 Frontend `git diff --check` 성공 |
-| Git 상태 정리 | USER ACTION | 기존 staged·unstaged·untracked 변경이 공존하므로 사용자가 Commit 범위를 검토 |
+| Git 상태 정리 | PASS submission scope | Method A/B 배포 파일만 선별하고 Frontend 시각 테스트 산출물은 제출 Commit에서 제외 |
 
 ## Security
 
@@ -46,7 +46,7 @@ AWS/EC2 상태는 사용자가 제공한 마스킹 결과 없이 추측하지 �
 | MySQL runtime privilege | PASS | 상시 계정은 DML만 사용하고 배포 중 Flyway DDL 권한을 임시 Grant 후 Revoke |
 | Backup/Dump Git exclusion | PASS working tree | ignore 규칙과 600 Backup Archive |
 | Authorization/Cookie logging | PASS static | Header/Request body 로깅 코드 미발견 |
-| Actuator exposure | PASS static | Actuator 의존성과 Endpoint 없음 |
+| Actuator exposure | PASS | `aws` Profile은 health만 포함하고 상세 정보를 숨기며, Host Nginx는 `/actuator`를 외부 Proxy하지 않음 |
 
 현재 확인된 치명적 보안 `FAIL`은 없다. 과거 Git History의 literal 값은
 운영 자격 증명으로 재사용하지 않으며, 원격 공유 전에 Current tree Secret
@@ -54,16 +54,16 @@ AWS/EC2 상태는 사용자가 제공한 마스킹 결과 없이 추측하지 �
 
 ## AWS / EC2
 
-사용자가 제공한 2026-08-03 Console·Session Manager·외부 포트 검사 결과:
+사용자가 제공한 2026-08-03~04 Console·Session Manager·외부 포트 검사 결과:
 
 - PASS: 서울 리전 `ap-northeast-2`, Ubuntu Server 24.04 LTS x86_64
 - PASS: `t3.small`, Root EBS gp3 20GiB 암호화, 종료 시 삭제
 - PASS: IMDSv2 Required, Metadata hop limit 1
 - PASS: `community-ec2-ssm-role`과 `AmazonSSMManagedInstanceCore`
 - PASS: Session Manager 연결과 SSM Agent active
-- PASS: Security Group Inbound는 HTTP 80 My IP/32만 유지
-- PASS: 외부 검사에서 80만 연결되고 22·443·8080·3306은 timeout
-- PASS: MySQL 127.0.0.1:3306, Spring Boot loopback:8080, Nginx 외부 80
+- PASS: Security Group Inbound는 공개 서비스용 HTTP 80·HTTPS 443만 `0.0.0.0/0`에 허용
+- PASS: 임시 SSH 22 규칙 삭제, 8080·3306 외부 미공개
+- PASS: MySQL 127.0.0.1:3306, Spring Boot loopback:8080, Nginx 외부 80·443
 - PASS: MySQL·Spring Boot·Nginx 활성, EC2 재부팅 후 영속성 검증
 - PASS: 로그인·피드·업로드·영속성 기능 검증
 - PASS: 두 릴리스 간 Rollback과 최신 릴리스 복귀 검증
@@ -73,6 +73,28 @@ AWS/EC2 상태는 사용자가 제공한 마스킹 결과 없이 추측하지 �
 
 계정 수준의 Root MFA·Root Access Key 부재, IAM Console Identity MFA,
 Budget 15 USD와 Actual Alert 12 USD는 Billing/IAM Console에서 별도로 유지·점검한다.
+
+## 2026-08-04 HTTPS 작업 트리 추가 검증
+
+| Control | Status | Evidence |
+|---|---|---|
+| 무료 고정 주소 방식 | PASS design | Dynu의 `pulse` 무료 Hostname을 선택하고 `sslip.io`+Elastic IP, DuckDNS, Cloudflare Quick Tunnel, ngrok 대안 비교 |
+| Dynu 인증정보 보호 | PASS static | 별도 IP Update Password 원문은 저장하지 않고 SHA-256만 `/etc/community/dynu.env`에 `root:root 600`으로 설치 |
+| Public IP 갱신 | PASS | Dynu API 갱신 성공, `community-dynu.timer` active, IMDSv2 Public IPv4와 DNS A Record 일치 |
+| HTTP Nginx 문법 | PASS local | Docker Nginx 1.28.2로 기본 HTTP와 인증서 발급 전 Domain Template `nginx -t` 성공 |
+| TLS Nginx·인증서 | PASS | `pulse.gleeze.com` 인증서 발급, 만료일 2026-11-02, TLS health 200과 인증서 신뢰 검증 성공 |
+| HTTP → HTTPS | PASS | 외부 `http://pulse.gleeze.com/healthz`가 Canonical HTTPS 주소로 301 Redirect |
+| 자동 갱신 | PASS | `certbot.timer` active, `certbot renew --dry-run --run-deploy-hooks` 성공 |
+| Backend HTTPS 전환 | PASS | `FRONTEND_ORIGIN=https://pulse.gleeze.com`, `COOKIE_SECURE=true`, Backend 재시작 후 검증 성공 |
+| 최종 EC2 검증 | PASS | `scripts/verify.sh`의 서비스·Listener·Domain·Timer·인증서·Redirect·DNS Control 전체 통과 |
+| Script Syntax | PASS local | 추가된 모든 Shell Script 포함 `bash -n` 성공 |
+| Deployment Function Test | PASS local | 기존 Origin·JWT·Loopback과 추가 Hostname·`pulse` Label·SHA-256·IPv4·Config 판정 성공 |
+| Backend AWS 설정 Test | PASS local | `AwsDeploymentConfigurationTest` 성공 |
+| ShellCheck | WARN | 로컬 명령 미설치로 미실행 |
+
+검증된 공개 주소는 `https://pulse.gleeze.com/`이다. 외부 검사에서 HTTPS
+health는 200, 인증서 검증 결과는 정상, HTTP health는 같은 HTTPS 주소로
+301 Redirect됐다. 운영 IP Update Password와 Hash는 증빙에 기록하지 않는다.
 
 ## Cost
 

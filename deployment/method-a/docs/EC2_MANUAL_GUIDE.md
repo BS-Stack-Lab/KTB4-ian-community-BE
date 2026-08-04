@@ -181,6 +181,26 @@ sudo nginx -t
 
 ## 8. 기능 검증
 
+공개 기능 검증 전 무료 고정 도메인과 HTTPS를 적용한다. 먼저 Dynu에서
+Host를 `pulse`로 입력하고 사용할 Top Level을 선택해 무료 Hostname을 만든다.
+생성된 전체 주소(`pulse.<선택한-suffix>`)를 확인하고, 계정 비밀번호와 다른
+별도 IP Update Password를 `My Account > Change Username/Password`에서
+설정한다. 이후 Security Group의 80·443을
+`0.0.0.0/0`에 허용한 뒤:
+
+```bash
+cd /opt/community/deployment/method-a
+sudo scripts/01-install-packages.sh
+sudo scripts/08-configure-free-domain-https.sh
+sudo scripts/verify.sh
+```
+
+Dynu 전체 Hostname, Let's Encrypt 알림 Email, Dynu IP Update Password를
+차례로 입력한다. Password는 숨김 입력 후 즉시 SHA-256 처리되며 원문은
+저장하지 않는다. Hash는 `/etc/community/dynu.env`에 `root:root 600`으로만
+저장된다.
+세부 선택 근거와 실패 확인은 `docs/FREE_DOMAIN_HTTPS.md`를 따른다.
+
 브라우저에서 사용자가 직접 확인:
 
 1. 회원가입·로그인·로그아웃
@@ -245,4 +265,5 @@ sudo scripts/verify.sh
 ```
 
 재부팅으로 Public IP가 바뀌지 않는 경우가 많지만 Stop/Start 시에는
-바뀔 수 있다. 실제 상태는 Console에서 확인한다.
+바뀔 수 있다. Dynu Timer가 같은 `pulse` Hostname에 새 IP를 반영할 때까지
+기다린 뒤 `verify.sh`를 다시 실행한다.

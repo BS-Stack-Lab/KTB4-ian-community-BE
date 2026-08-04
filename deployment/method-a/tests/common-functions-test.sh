@@ -39,6 +39,123 @@ for origin in "${invalid_origins[@]}"; do
   fi
 done
 
+valid_hostnames=(
+  "pulse.dynu.com"
+  "community-test.example.co.kr"
+)
+
+invalid_hostnames=(
+  "localhost"
+  ".example.com"
+  "example.com."
+  "community..example.com"
+  "-community.example.com"
+)
+
+for hostname in "${valid_hostnames[@]}"; do
+  if ! is_valid_hostname "${hostname}"; then
+    echo "Expected valid hostname: ${hostname}" >&2
+    exit 1
+  fi
+done
+
+for hostname in "${invalid_hostnames[@]}"; do
+  if is_valid_hostname "${hostname}"; then
+    echo "Expected invalid hostname: ${hostname}" >&2
+    exit 1
+  fi
+done
+
+valid_pulse_hostnames=(
+  "pulse.dynu.com"
+  "pulse.freeddns.org"
+  "pulse.example.co.kr"
+)
+
+invalid_pulse_hostnames=(
+  "Pulse.dynu.com"
+  "community.dynu.com"
+  "pulse"
+  "pulse..dynu.com"
+)
+
+for hostname in "${valid_pulse_hostnames[@]}"; do
+  if ! is_hostname_with_label "${hostname}" pulse; then
+    echo "Expected hostname with pulse label: ${hostname}" >&2
+    exit 1
+  fi
+done
+
+for hostname in "${invalid_pulse_hostnames[@]}"; do
+  if is_hostname_with_label "${hostname}" pulse; then
+    echo "Expected hostname without valid pulse label: ${hostname}" >&2
+    exit 1
+  fi
+done
+
+if ! is_valid_sha256_hash \
+  "$(printf 'dynu-update-password' | sha256sum | awk '{ print $1 }')"; then
+  echo "Expected a valid SHA-256 hash." >&2
+  exit 1
+fi
+
+if is_valid_sha256_hash "not-a-sha256-hash"; then
+  echo "Expected an invalid SHA-256 hash." >&2
+  exit 1
+fi
+
+for response in "good" "good 203.0.113.10" "nochg" "nochg 203.0.113.10"; do
+  if ! is_successful_dynu_response "${response}"; then
+    echo "Expected a successful Dynu response: ${response}" >&2
+    exit 1
+  fi
+done
+
+for response in "badauth" "911" "dnserr" "unknown"; do
+  if is_successful_dynu_response "${response}"; then
+    echo "Expected a failed Dynu response: ${response}" >&2
+    exit 1
+  fi
+done
+
+valid_ipv4_addresses=(
+  "1.1.1.1"
+  "127.0.0.1"
+  "255.255.255.255"
+)
+
+invalid_ipv4_addresses=(
+  "01.1.1.1"
+  "256.1.1.1"
+  "999999999999999999999999.1.1.1"
+  "1.1.1"
+  "2001:db8::1"
+)
+
+for address in "${valid_ipv4_addresses[@]}"; do
+  if ! is_valid_ipv4 "${address}"; then
+    echo "Expected valid IPv4 address: ${address}" >&2
+    exit 1
+  fi
+done
+
+for address in "${invalid_ipv4_addresses[@]}"; do
+  if is_valid_ipv4 "${address}"; then
+    echo "Expected invalid IPv4 address: ${address}" >&2
+    exit 1
+  fi
+done
+
+temporary_config="$(mktemp /tmp/community-config-test.XXXXXX)"
+trap 'rm -f -- "${temporary_config}"' EXIT
+printf 'COMMUNITY_DOMAIN=pulse.dynu.com\n' >"${temporary_config}"
+
+if [[ "$(read_config_value "${temporary_config}" COMMUNITY_DOMAIN)" != \
+  "pulse.dynu.com" ]]; then
+  echo "Expected exact config value lookup." >&2
+  exit 1
+fi
+
 valid_jwt_secret="MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 invalid_jwt_secrets=(
   "not@base64"
