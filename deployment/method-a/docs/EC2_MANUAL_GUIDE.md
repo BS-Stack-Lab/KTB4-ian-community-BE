@@ -179,9 +179,14 @@ sudo nginx -t
 로그를 전달할 때 Authorization, Cookie, Token, 사용자 데이터, DB URL의
 사용자명을 마스킹한다.
 
-## 8. 기능 검증
+## 8. B 작업 단계에서 추가한 고정 도메인·HTTPS와 공개 기능 검증
 
-공개 기능 검증 전 무료 고정 도메인과 HTTPS를 적용한다. 먼저 Dynu에서
+과제의 A 방식 검증은 위 7장까지 EC2 Public IPv4의 HTTP 80에서 완료했다.
+아래 Dynu·HTTPS 절차는 이후 B 방식 작업 단계에서 공통 Host 진입점으로 처음
+실행한 후속 작업이다. Script는 Host Nginx를 재사용하므로 이 운영 Bundle에
+함께 둔다.
+
+무료 고정 도메인과 HTTPS를 적용하려면 먼저 Dynu에서
 Host를 `pulse`로 입력하고 사용할 Top Level을 선택해 무료 Hostname을 만든다.
 생성된 전체 주소(`pulse.<선택한-suffix>`)를 확인하고, 계정 비밀번호와 다른
 별도 IP Update Password를 `My Account > Change Username/Password`에서
@@ -265,5 +270,6 @@ sudo scripts/verify.sh
 ```
 
 재부팅으로 Public IP가 바뀌지 않는 경우가 많지만 Stop/Start 시에는
-바뀔 수 있다. Dynu Timer가 같은 `pulse` Hostname에 새 IP를 반영할 때까지
-기다린 뒤 `verify.sh`를 다시 실행한다.
+바뀔 수 있다. B 작업 단계의 공통 Host 진입점까지 적용한 환경이라면 Dynu
+Timer가 같은 `pulse` Hostname에 새 IP를 반영할 때까지 기다린 뒤 `verify.sh`를
+다시 실행한다.

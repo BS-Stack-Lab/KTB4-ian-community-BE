@@ -2,22 +2,34 @@
 
 Ubuntu Server 24.04 LTS x86_64 한 대에 Java 21, Nginx, MySQL,
 Spring Boot를 직접 설치하는 수동 배포 자료다. RDS, S3, Elastic IP,
-ALB, NAT Gateway 및 B 방식 파일을 사용하지 않는다. 공개 운영 주소는
-Dynu의 `pulse` 무료 고정 호스트와 Let's Encrypt HTTPS를 사용한다.
+ALB, NAT Gateway 및 B 방식 파일을 사용하지 않는다. A 방식 과제 검증은 EC2
+Public IPv4의 HTTP 80에서 완료했으며 Dynu와 HTTPS를 사용하지 않았다.
 
-2026-08-04 검증된 제출 배포 주소: <https://pulse.gleeze.com/>
+이 디렉터리에는 이후 B 방식 작업 단계에서 공통 Host 진입점으로 처음 적용한
+Dynu·Let's Encrypt 운영 Script도 함께 보관한다. 따라서 Script의 저장 위치와
+A 방식 과제 검증 범위를 구분해야 한다. 최종 제출 주소는 이 후속 Host 설정을
+사용한 <https://pulse.gleeze.com/>이다.
 
-A/B 방식을 하나의 문제 해결 과정으로 정리한 기술 블로그 문서는
-[`../DEPLOYMENT_TECH_BLOG.md`](../DEPLOYMENT_TECH_BLOG.md)를 참고합니다.
+A 방식만 독립적으로 정리한 기술 블로그 문서는
+[`../DEPLOYMENT_METHOD_A_TECH_BLOG.md`](../DEPLOYMENT_METHOD_A_TECH_BLOG.md)를
+참고합니다. A/B 방식을 연결한 통합 회고는
+[`../DEPLOYMENT_TECH_BLOG.md`](../DEPLOYMENT_TECH_BLOG.md)에 기록합니다.
+외부 글과 공식 문서에서 참고한 구체적인 지점은
+[`../DEPLOYMENT_TECH_BLOG_SOURCES.md`](../DEPLOYMENT_TECH_BLOG_SOURCES.md)에
+분리해 기록합니다.
 
 ## 구조
 
 ```text
-Internet -> Dynu pulse host -> Nginx :80 redirect / :443 TLS
-             |- static frontend
-             `- /api, /uploads -> 127.0.0.1:8080
-                                      `- MySQL 127.0.0.1:3306
+Browser -> EC2 Public IPv4 :80 -> Host Nginx
+                                  |- static frontend
+                                  `- /api, /uploads -> 127.0.0.1:8080
+                                                           `- MySQL 127.0.0.1:3306
 ```
+
+위 구조가 A 방식 검증 범위다. B 작업 단계에서 추가한 최종 Host 진입점은
+`Dynu Hostname -> Nginx :80 Redirect / :443 TLS`이며, 애플리케이션 연결은
+같은 Host Nginx 설정을 재사용한다.
 
 ## 사용자 소유 작업
 
@@ -41,7 +53,8 @@ Codex는 AWS나 EC2에 접속하지 않는다.
 - `scripts/05-deploy-frontend.sh`: 정적 파일 버전과 symlink
 - `scripts/06-configure-systemd.sh`: hardened service
 - `scripts/07-configure-nginx.sh`: SPA 및 reverse proxy
-- `scripts/08-configure-free-domain-https.sh`: Dynu·TLS·Secure Cookie 전환
+- `scripts/08-configure-free-domain-https.sh`: B 작업 단계에서 추가한 공통 Host
+  Dynu·TLS·Secure Cookie 전환
 - `scripts/update-dynu.sh`: EC2 Public IPv4 변경을 Dynu에 반영
 - `scripts/deploy.sh`: 배포 적용
 - `scripts/rollback.sh`: 이전 Backend/Frontend 동시 롤백
