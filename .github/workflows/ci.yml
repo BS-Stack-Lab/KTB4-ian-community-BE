@@ -1,11 +1,7 @@
 name: BE / CI
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
-  merge_group:
-    types: [checks_requested]
+  workflow_dispatch:
   push:
     branches: [main]
 
@@ -13,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: be-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: be-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -63,7 +59,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      FRONTEND_BOOTSTRAP_SHA: e8540600908fab04b32965608b6de2bb9b6f85b0
+      FRONTEND_BOOTSTRAP_SHA: 789191773df3235b3f2a7f22d24bb63c5daa3141
       CI_HTTP_PORT: "18080"
     steps:
       - name: Checkout backend candidate
@@ -74,8 +70,8 @@ jobs:
         if: vars.FRONTEND_BASELINE_IMAGE == ''
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: 100-hours-a-week/KTB4-ian-community-FE
-          ref: ${{ vars.FRONTEND_BASELINE_SHA || 'e8540600908fab04b32965608b6de2bb9b6f85b0' }}
+          repository: BS-Stack-Lab/KTB4-ian-community-FE
+          ref: ${{ vars.FRONTEND_BASELINE_SHA || '789191773df3235b3f2a7f22d24bb63c5daa3141' }}
           path: frontend-source
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
       - name: Build candidate backend
@@ -94,7 +90,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           if [[ -n "${APPROVED_IMAGE}" ]]; then
-            [[ "${APPROVED_IMAGE}" =~ ^ghcr\.io/100-hours-a-week/ktb4-ian-community-fe@sha256:[0-9a-f]{64}$ ]]
+            [[ "${APPROVED_IMAGE}" =~ ^ghcr\.io/bs-stack-lab/ktb4-ian-community-fe@sha256:[0-9a-f]{64}$ ]]
             docker pull --platform linux/amd64 "${APPROVED_IMAGE}"
             docker tag "${APPROVED_IMAGE}" community-frontend:baseline
           else

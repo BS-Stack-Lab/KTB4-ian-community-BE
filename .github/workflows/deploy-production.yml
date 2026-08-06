@@ -1,23 +1,6 @@
 name: BE / deploy-production
 
 on:
-  workflow_call:
-    inputs:
-      operation:
-        type: string
-        required: false
-        default: deploy
-      component:
-        type: string
-        required: true
-      source_sha:
-        type: string
-        required: true
-      image_digest:
-        type: string
-        required: true
-  repository_dispatch:
-    types: [frontend-image-published]
   workflow_dispatch:
     inputs:
       operation:
@@ -27,19 +10,19 @@ on:
         default: deploy
         options: [deploy, rollback]
       frontend_sha:
-        description: Full frontend commit SHA (deploy only)
+        description: Full Frontend main commit SHA (deploy only)
         type: string
         required: false
-      frontend_digest:
-        description: Frontend sha256 digest (deploy only)
+      frontend_ref:
+        description: Frontend full SHA tag or sha256 digest (deploy only)
         type: string
         required: false
       backend_sha:
-        description: Full backend commit SHA (deploy only)
+        description: Full Backend main commit SHA (deploy only)
         type: string
         required: false
-      backend_digest:
-        description: Backend sha256 digest (deploy only)
+      backend_ref:
+        description: Backend full SHA tag or sha256 digest (deploy only)
         type: string
         required: false
       rollback_confirmation:
@@ -48,6 +31,7 @@ on:
         required: false
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -59,115 +43,74 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       operation: ${{ steps.resolve.outputs.operation }}
-      component: ${{ steps.resolve.outputs.component }}
       config_sha: ${{ steps.resolve.outputs.config_sha }}
       frontend_commit: ${{ steps.resolve.outputs.frontend_commit }}
-      frontend_image: ${{ steps.resolve.outputs.frontend_image }}
+      frontend_ref: ${{ steps.resolve.outputs.frontend_ref }}
       backend_commit: ${{ steps.resolve.outputs.backend_commit }}
-      backend_image: ${{ steps.resolve.outputs.backend_image }}
+      backend_ref: ${{ steps.resolve.outputs.backend_ref }}
     steps:
       - name: Checkout current trusted Backend main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: main
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
-      - name: Resolve and validate deployment request
+      - name: Resolve and validate manual request
         id: resolve
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          CALL_OPERATION: ${{ inputs.operation }}
-          CALL_COMPONENT: ${{ inputs.component }}
-          CALL_SOURCE_SHA: ${{ inputs.source_sha }}
-          CALL_IMAGE_DIGEST: ${{ inputs.image_digest }}
-          DISPATCH_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
-          MANUAL_OPERATION: ${{ github.event.inputs.operation }}
-          MANUAL_FRONTEND_SHA: ${{ github.event.inputs.frontend_sha }}
-          MANUAL_FRONTEND_DIGEST: ${{ github.event.inputs.frontend_digest }}
-          MANUAL_BACKEND_SHA: ${{ github.event.inputs.backend_sha }}
-          MANUAL_BACKEND_DIGEST: ${{ github.event.inputs.backend_digest }}
-          MANUAL_ROLLBACK_CONFIRMATION: ${{ github.event.inputs.rollback_confirmation }}
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+          FRONTEND_SHA: ${{ inputs.frontend_sha }}
+          FRONTEND_REF: ${{ inputs.frontend_ref }}
+          BACKEND_SHA: ${{ inputs.backend_sha }}
+          BACKEND_REF: ${{ inputs.backend_ref }}
+          ROLLBACK_CONFIRMATION: ${{ inputs.rollback_confirmation }}
         run: |
           set -Eeuo pipefail
+          [[ "${GITHUB_REF}" == refs/heads/main ]]
           config_sha="$(git rev-parse HEAD)"
           [[ "${config_sha}" =~ ^[0-9a-f]{40}$ ]]
 
-          operation=''
-          component=''
-          frontend_commit=''
-          frontend_digest=''
-          backend_commit=''
-          backend_digest=''
-
-          case "${EVENT_NAME}" in
-            workflow_call)
-              operation="${CALL_OPERATION}"
-              component="${CALL_COMPONENT}"
-              [[ "${operation}" == deploy ]]
-              [[ "${component}" == backend ]]
-              backend_commit="${CALL_SOURCE_SHA}"
-              backend_digest="${CALL_IMAGE_DIGEST}"
-              [[ "${backend_commit}" == "${config_sha}" ]]
-              ;;
-            repository_dispatch)
-              jq -e 'type == "object" and (keys | sort == ["component","image_digest","source_repository","source_sha"])' <<<"${DISPATCH_PAYLOAD}" >/dev/null
-              operation=deploy
-              component="$(jq -r .component <<<"${DISPATCH_PAYLOAD}")"
-              source_repository="$(jq -r .source_repository <<<"${DISPATCH_PAYLOAD}")"
-              frontend_commit="$(jq -r .source_sha <<<"${DISPATCH_PAYLOAD}")"
-              frontend_digest="$(jq -r .image_digest <<<"${DISPATCH_PAYLOAD}")"
-              [[ "${component}" == frontend ]]
-              [[ "${source_repository}" == 100-hours-a-week/KTB4-ian-community-FE ]]
-              ;;
-            workflow_dispatch)
-              [[ "${GITHUB_REF}" == refs/heads/main ]]
-              operation="${MANUAL_OPERATION}"
-              if [[ "${operation}" == rollback ]]; then
-                [[ "${MANUAL_ROLLBACK_CONFIRMATION}" == rollback-community ]]
-                component=rollback
-              else
-                [[ "${operation}" == deploy ]]
-                component=both
-                frontend_commit="${MANUAL_FRONTEND_SHA}"
-                frontend_digest="${MANUAL_FRONTEND_DIGEST}"
-                backend_commit="${MANUAL_BACKEND_SHA}"
-                backend_digest="${MANUAL_BACKEND_DIGEST}"
-              fi
-              ;;
-            *)
-              echo "Unsupported event: ${EVENT_NAME}" >&2
-              exit 1
-              ;;
-          esac
-
-          if [[ "${operation}" == deploy ]]; then
-            if [[ "${component}" == frontend || "${component}" == both ]]; then
-              [[ "${frontend_commit}" =~ ^[0-9a-f]{40}$ ]]
-              [[ "${frontend_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
-              frontend_image="ghcr.io/100-hours-a-week/ktb4-ian-community-fe@${frontend_digest}"
-            else
-              frontend_image=''
-            fi
-            if [[ "${component}" == backend || "${component}" == both ]]; then
-              [[ "${backend_commit}" =~ ^[0-9a-f]{40}$ ]]
-              [[ "${backend_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
-              backend_image="ghcr.io/100-hours-a-week/ktb4-ian-week4-community-backend@${backend_digest}"
-            else
-              backend_image=''
-            fi
+          if [[ "${OPERATION}" == rollback ]]; then
+            [[ "${ROLLBACK_CONFIRMATION}" == rollback-community ]]
+            frontend_sha=''
+            frontend_ref=''
+            backend_sha=''
+            backend_ref=''
           else
-            frontend_image=''
-            backend_image=''
+            [[ "${OPERATION}" == deploy ]]
+            [[ "${FRONTEND_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            [[ "${BACKEND_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            [[ "${FRONTEND_REF}" =~ ^([0-9a-f]{40}|sha256:[0-9a-f]{64})$ ]]
+            [[ "${BACKEND_REF}" =~ ^([0-9a-f]{40}|sha256:[0-9a-f]{64})$ ]]
+            [[ ! "${FRONTEND_REF}" =~ ^[0-9a-f]{40}$ || "${FRONTEND_REF}" == "${FRONTEND_SHA}" ]]
+            [[ ! "${BACKEND_REF}" =~ ^[0-9a-f]{40}$ || "${BACKEND_REF}" == "${BACKEND_SHA}" ]]
+            git merge-base --is-ancestor "${BACKEND_SHA}" HEAD
+            frontend_status="$(gh api "repos/BS-Stack-Lab/KTB4-ian-community-FE/compare/${FRONTEND_SHA}...main" --jq .status)"
+            [[ "${frontend_status}" == ahead || "${frontend_status}" == identical ]]
+
+            require_successful_ci() {
+              local repository="$1"
+              local source_sha="$2"
+              gh api --method GET "repos/${repository}/actions/workflows/ci.yml/runs" \
+                -f head_sha="${source_sha}" -f event=push -f status=success -f per_page=100 \
+                --jq '.workflow_runs | any(.conclusion == "success")' | grep -qx true
+            }
+            require_successful_ci BS-Stack-Lab/KTB4-ian-community-FE "${FRONTEND_SHA}"
+            require_successful_ci BS-Stack-Lab/KTB4-ian-community-BE "${BACKEND_SHA}"
+            frontend_sha="${FRONTEND_SHA}"
+            frontend_ref="${FRONTEND_REF}"
+            backend_sha="${BACKEND_SHA}"
+            backend_ref="${BACKEND_REF}"
           fi
 
           {
-            echo "operation=${operation}"
-            echo "component=${component}"
+            echo "operation=${OPERATION}"
             echo "config_sha=${config_sha}"
-            echo "frontend_commit=${frontend_commit}"
-            echo "frontend_image=${frontend_image}"
-            echo "backend_commit=${backend_commit}"
-            echo "backend_image=${backend_image}"
+            echo "frontend_commit=${frontend_sha}"
+            echo "frontend_ref=${frontend_ref}"
+            echo "backend_commit=${backend_sha}"
+            echo "backend_ref=${backend_ref}"
           } >>"${GITHUB_OUTPUT}"
 
   production:
@@ -182,20 +125,41 @@ jobs:
       url: https://pulse.gleeze.com
     steps:
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-      - name: Verify requested public manifests
+      - name: Resolve and verify immutable public manifests
         if: needs.prepare.outputs.operation == 'deploy'
+        id: images
         env:
-          COMPONENT: ${{ needs.prepare.outputs.component }}
-          FRONTEND_IMAGE: ${{ needs.prepare.outputs.frontend_image }}
-          BACKEND_IMAGE: ${{ needs.prepare.outputs.backend_image }}
+          FRONTEND_COMMIT: ${{ needs.prepare.outputs.frontend_commit }}
+          FRONTEND_REF: ${{ needs.prepare.outputs.frontend_ref }}
+          BACKEND_COMMIT: ${{ needs.prepare.outputs.backend_commit }}
+          BACKEND_REF: ${{ needs.prepare.outputs.backend_ref }}
         run: |
           set -Eeuo pipefail
-          if [[ "${COMPONENT}" == frontend || "${COMPONENT}" == both ]]; then
-            docker buildx imagetools inspect "${FRONTEND_IMAGE}" >/dev/null
-          fi
-          if [[ "${COMPONENT}" == backend || "${COMPONENT}" == both ]]; then
-            docker buildx imagetools inspect "${BACKEND_IMAGE}" >/dev/null
-          fi
+          resolve_image() {
+            local repository="$1"
+            local source_sha="$2"
+            local requested_ref="$3"
+            local candidate digest labels resolved
+            if [[ "${requested_ref}" == sha256:* ]]; then
+              candidate="${repository}@${requested_ref}"
+            else
+              [[ "${requested_ref}" == "${source_sha}" ]]
+              candidate="${repository}:${requested_ref}"
+            fi
+            digest="$(docker buildx imagetools inspect "${candidate}" | awk '$1 == "Digest:" {print $2; exit}')"
+            [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            resolved="${repository}@${digest}"
+            labels="$(docker buildx imagetools inspect "${resolved}" --format '{{json .Image.Config.Labels}}')"
+            jq -e --arg revision "${source_sha}" \
+              '.["org.opencontainers.image.revision"] == $revision' <<<"${labels}" >/dev/null
+            printf '%s\n' "${resolved}"
+          }
+          frontend_image="$(resolve_image ghcr.io/bs-stack-lab/ktb4-ian-community-fe "${FRONTEND_COMMIT}" "${FRONTEND_REF}")"
+          backend_image="$(resolve_image ghcr.io/bs-stack-lab/ktb4-ian-community-be "${BACKEND_COMMIT}" "${BACKEND_REF}")"
+          {
+            echo "frontend_image=${frontend_image}"
+            echo "backend_image=${backend_image}"
+          } >>"${GITHUB_OUTPUT}"
       - name: Configure AWS credentials through OIDC
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
@@ -205,12 +169,11 @@ jobs:
       - name: Run serialized deployment through SSM
         env:
           OPERATION: ${{ needs.prepare.outputs.operation }}
-          COMPONENT: ${{ needs.prepare.outputs.component }}
           CONFIG_SHA: ${{ needs.prepare.outputs.config_sha }}
           FRONTEND_COMMIT: ${{ needs.prepare.outputs.frontend_commit }}
-          FRONTEND_IMAGE: ${{ needs.prepare.outputs.frontend_image }}
+          FRONTEND_IMAGE: ${{ steps.images.outputs.frontend_image }}
           BACKEND_COMMIT: ${{ needs.prepare.outputs.backend_commit }}
-          BACKEND_IMAGE: ${{ needs.prepare.outputs.backend_image }}
+          BACKEND_IMAGE: ${{ steps.images.outputs.backend_image }}
           INSTANCE_ID: ${{ vars.PRODUCTION_INSTANCE_ID }}
           PRODUCTION_ORIGIN: ${{ vars.PRODUCTION_ORIGIN }}
         run: |
@@ -221,7 +184,7 @@ jobs:
           if [[ "${OPERATION}" == rollback ]]; then
             remote_command='sudo env ROLLBACK_CONFIRM=rollback-community /opt/community/bin/community-release rollback'
           else
-            remote_command="sudo env CONFIG_SHA=${CONFIG_SHA} TARGET_COMPONENT=${COMPONENT} PRODUCTION_ORIGIN=${PRODUCTION_ORIGIN} TARGET_FRONTEND_COMMIT=${FRONTEND_COMMIT} TARGET_FRONTEND_IMAGE=${FRONTEND_IMAGE} TARGET_BACKEND_COMMIT=${BACKEND_COMMIT} TARGET_BACKEND_IMAGE=${BACKEND_IMAGE} /opt/community/bin/community-release deploy"
+            remote_command="sudo env CONFIG_SHA=${CONFIG_SHA} TARGET_COMPONENT=both PRODUCTION_ORIGIN=${PRODUCTION_ORIGIN} TARGET_FRONTEND_COMMIT=${FRONTEND_COMMIT} TARGET_FRONTEND_IMAGE=${FRONTEND_IMAGE} TARGET_BACKEND_COMMIT=${BACKEND_COMMIT} TARGET_BACKEND_IMAGE=${BACKEND_IMAGE} /opt/community/bin/community-release deploy"
           fi
 
           parameters="$(jq -cn --arg command "${remote_command}" '{commands:[$command]}')"
@@ -248,3 +211,19 @@ jobs:
             --query '{Status:Status,ResponseCode:ResponseCode,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
             --output json
           [[ "${status}" == Success ]]
+      - name: Verify external production health
+        env:
+          PRODUCTION_ORIGIN: ${{ vars.PRODUCTION_ORIGIN }}
+        run: |
+          set -Eeuo pipefail
+          healthy=0
+          for _ in {1..30}; do
+            if [[ "$(curl --fail --silent --show-error --max-time 10 "${PRODUCTION_ORIGIN}/healthz" || true)" == ok ]]; then
+              healthy=1
+              break
+            fi
+            sleep 5
+          done
+          [[ "${healthy}" == 1 ]]
+          curl --fail --silent --show-error --max-time 15 --output /dev/null "${PRODUCTION_ORIGIN}/"
+          curl --fail --silent --show-error --max-time 15 --output /dev/null "${PRODUCTION_ORIGIN}/api/csrf"

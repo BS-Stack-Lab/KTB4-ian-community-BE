@@ -177,11 +177,11 @@ validate_release_env() {
     }
   done
   if [[ "${ALLOW_LOCAL_IMAGES:-0}" != "1" ]]; then
-    [[ "$(env_value "${env_file}" FRONTEND_IMAGE)" =~ ^ghcr\.io/100-hours-a-week/ktb4-ian-community-fe@sha256:[0-9a-f]{64}$ ]] || {
+    [[ "$(env_value "${env_file}" FRONTEND_IMAGE)" =~ ^ghcr\.io/bs-stack-lab/ktb4-ian-community-fe@sha256:[0-9a-f]{64}$ ]] || {
       echo "FRONTEND_IMAGE must be the approved Frontend GHCR digest reference." >&2
       exit 1
     }
-    [[ "$(env_value "${env_file}" BACKEND_IMAGE)" =~ ^ghcr\.io/100-hours-a-week/ktb4-ian-week4-community-backend@sha256:[0-9a-f]{64}$ ]] || {
+    [[ "$(env_value "${env_file}" BACKEND_IMAGE)" =~ ^ghcr\.io/bs-stack-lab/ktb4-ian-community-be@sha256:[0-9a-f]{64}$ ]] || {
       echo "BACKEND_IMAGE must be the approved Backend GHCR digest reference." >&2
       exit 1
     }
@@ -282,9 +282,9 @@ validate_local_images() {
       image="$(env_value "${env_file}" "${key}_IMAGE")"
       expected_commit="$(env_value "${env_file}" "${key}_COMMIT")"
       if [[ "${key}" == FRONTEND ]]; then
-        expected_source="https://github.com/100-hours-a-week/KTB4-ian-community-FE"
+        expected_source="https://github.com/BS-Stack-Lab/KTB4-ian-community-FE"
       else
-        expected_source="https://github.com/100-hours-a-week/KTB4-ian-week4"
+        expected_source="https://github.com/BS-Stack-Lab/KTB4-ian-community-BE"
       fi
       actual_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${image}")"
       actual_version="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "${image}")"

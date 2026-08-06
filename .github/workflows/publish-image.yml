@@ -59,7 +59,7 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/100-hours-a-week/ktb4-ian-week4-community-backend:${{ steps.source.outputs.sha }}
+          tags: ghcr.io/bs-stack-lab/ktb4-ian-community-be:${{ steps.source.outputs.sha }}
           build-args: |
             OCI_REVISION=${{ steps.source.outputs.sha }}
             OCI_VERSION=${{ steps.source.outputs.sha }}
@@ -71,17 +71,6 @@ jobs:
           cache-to: type=gha,mode=max,scope=be-production
       - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
-          subject-name: ghcr.io/100-hours-a-week/ktb4-ian-week4-community-backend
+          subject-name: ghcr.io/bs-stack-lab/ktb4-ian-community-be
           subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
-
-  deploy:
-    needs: publish
-    if: vars.PRODUCTION_DEPLOY_ENABLED == 'true'
-    uses: ./.github/workflows/deploy-production.yml
-    with:
-      operation: deploy
-      component: backend
-      source_sha: ${{ needs.publish.outputs.source_sha }}
-      image_digest: ${{ needs.publish.outputs.digest }}
-    secrets: inherit

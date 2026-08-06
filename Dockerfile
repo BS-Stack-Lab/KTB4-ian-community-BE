@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/root/.gradle \
 
 FROM ${JRE_IMAGE} AS runtime
 
-ARG OCI_SOURCE=https://github.com/100-hours-a-week/KTB4-ian-week4
+ARG OCI_SOURCE=https://github.com/BS-Stack-Lab/KTB4-ian-community-BE
 ARG OCI_REVISION=local
 ARG OCI_VERSION=local
 

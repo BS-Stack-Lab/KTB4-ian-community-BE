@@ -24,7 +24,7 @@ if [[ "${CONFIG_PREPARED:-0}" != "1" ]]; then
     assert_safe_path "${stage}"
     trap 'rm -f -- "${archive}"; rm -rf -- "${stage}"' EXIT
     curl --fail --silent --show-error --location \
-      "https://github.com/100-hours-a-week/KTB4-ian-week4/archive/${config_sha}.tar.gz" \
+      "https://github.com/BS-Stack-Lab/KTB4-ian-community-BE/archive/${config_sha}.tar.gz" \
       --output "${archive}"
     tar -xzf "${archive}" --strip-components=1 -C "${stage}"
     require_file "${stage}/deployment/ec2-compose/compose.yaml"
