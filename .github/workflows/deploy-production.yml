@@ -33,6 +33,7 @@ on:
 permissions:
   actions: read
   contents: read
+  packages: read
 
 concurrency:
   group: pulse-production
@@ -45,9 +46,9 @@ jobs:
       operation: ${{ steps.resolve.outputs.operation }}
       config_sha: ${{ steps.resolve.outputs.config_sha }}
       frontend_commit: ${{ steps.resolve.outputs.frontend_commit }}
-      frontend_ref: ${{ steps.resolve.outputs.frontend_ref }}
+      frontend_image: ${{ steps.resolve.outputs.frontend_image }}
       backend_commit: ${{ steps.resolve.outputs.backend_commit }}
-      backend_ref: ${{ steps.resolve.outputs.backend_ref }}
+      backend_image: ${{ steps.resolve.outputs.backend_image }}
     steps:
       - name: Checkout current trusted Backend main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -55,7 +56,13 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
-      - name: Resolve and validate manual request
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Validate source commits and immutable images before approval
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
@@ -74,9 +81,9 @@ jobs:
           if [[ "${OPERATION}" == rollback ]]; then
             [[ "${ROLLBACK_CONFIRMATION}" == rollback-community ]]
             frontend_sha=''
-            frontend_ref=''
+            frontend_image=''
             backend_sha=''
-            backend_ref=''
+            backend_image=''
           else
             [[ "${OPERATION}" == deploy ]]
             [[ "${FRONTEND_SHA}" =~ ^[0-9a-f]{40}$ ]]
@@ -93,24 +100,80 @@ jobs:
               local repository="$1"
               local source_sha="$2"
               gh api --method GET "repos/${repository}/actions/workflows/ci.yml/runs" \
-                -f head_sha="${source_sha}" -f event=push -f status=success -f per_page=100 \
-                --jq '.workflow_runs | any(.conclusion == "success")' | grep -qx true
+                -f branch=main -f head_sha="${source_sha}" -f event=push \
+                -f status=success -f per_page=100 \
+                | jq -e --arg source_sha "${source_sha}" '
+                    .workflow_runs
+                    | any(
+                        .head_sha == $source_sha
+                        and .head_branch == "main"
+                        and .event == "push"
+                        and .status == "completed"
+                        and .conclusion == "success"
+                      )
+                  ' >/dev/null
+            }
+            resolve_verified_image() {
+              local image_repository="$1"
+              local source_repository="$2"
+              local source_sha="$3"
+              local requested_ref="$4"
+              local candidate manifest digest resolved labels
+
+              if [[ "${requested_ref}" == sha256:* ]]; then
+                candidate="${image_repository}@${requested_ref}"
+              else
+                [[ "${requested_ref}" == "${source_sha}" ]]
+                candidate="${image_repository}:${requested_ref}"
+              fi
+
+              manifest="$(docker buildx imagetools inspect "${candidate}" --format '{{json .Manifest}}')"
+              digest="$(jq -r '.digest // empty' <<<"${manifest}")"
+              [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+              jq -e '
+                any(
+                  .manifests[]?;
+                  .platform.os == "linux" and .platform.architecture == "amd64"
+                )
+              ' <<<"${manifest}" >/dev/null
+
+              resolved="${image_repository}@${digest}"
+              labels="$(docker buildx imagetools inspect "${resolved}" --format '{{json .Image.Config.Labels}}')"
+              jq -e --arg revision "${source_sha}" \
+                --arg source "https://github.com/${source_repository}" '
+                  .["org.opencontainers.image.revision"] == $revision
+                  and .["org.opencontainers.image.source"] == $source
+                ' <<<"${labels}" >/dev/null
+
+              gh attestation verify "oci://${resolved}" \
+                --repo "${source_repository}" \
+                --signer-workflow "${source_repository}/.github/workflows/publish-image.yml" \
+                --source-ref refs/heads/main \
+                --source-digest "${source_sha}" \
+                --bundle-from-oci >/dev/null
+              printf '%s\n' "${resolved}"
             }
             require_successful_ci BS-Stack-Lab/KTB4-ian-community-FE "${FRONTEND_SHA}"
             require_successful_ci BS-Stack-Lab/KTB4-ian-community-BE "${BACKEND_SHA}"
             frontend_sha="${FRONTEND_SHA}"
-            frontend_ref="${FRONTEND_REF}"
             backend_sha="${BACKEND_SHA}"
-            backend_ref="${BACKEND_REF}"
+            frontend_image="$(resolve_verified_image \
+              ghcr.io/bs-stack-lab/ktb4-ian-community-fe \
+              BS-Stack-Lab/KTB4-ian-community-FE \
+              "${frontend_sha}" "${FRONTEND_REF}")"
+            backend_image="$(resolve_verified_image \
+              ghcr.io/bs-stack-lab/ktb4-ian-community-be \
+              BS-Stack-Lab/KTB4-ian-community-BE \
+              "${backend_sha}" "${BACKEND_REF}")"
           fi
 
           {
             echo "operation=${OPERATION}"
             echo "config_sha=${config_sha}"
             echo "frontend_commit=${frontend_sha}"
-            echo "frontend_ref=${frontend_ref}"
+            echo "frontend_image=${frontend_image}"
             echo "backend_commit=${backend_sha}"
-            echo "backend_ref=${backend_ref}"
+            echo "backend_image=${backend_image}"
           } >>"${GITHUB_OUTPUT}"
 
   production:
@@ -124,42 +187,6 @@ jobs:
       name: production
       url: https://pulse.gleeze.com
     steps:
-      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-      - name: Resolve and verify immutable public manifests
-        if: needs.prepare.outputs.operation == 'deploy'
-        id: images
-        env:
-          FRONTEND_COMMIT: ${{ needs.prepare.outputs.frontend_commit }}
-          FRONTEND_REF: ${{ needs.prepare.outputs.frontend_ref }}
-          BACKEND_COMMIT: ${{ needs.prepare.outputs.backend_commit }}
-          BACKEND_REF: ${{ needs.prepare.outputs.backend_ref }}
-        run: |
-          set -Eeuo pipefail
-          resolve_image() {
-            local repository="$1"
-            local source_sha="$2"
-            local requested_ref="$3"
-            local candidate digest labels resolved
-            if [[ "${requested_ref}" == sha256:* ]]; then
-              candidate="${repository}@${requested_ref}"
-            else
-              [[ "${requested_ref}" == "${source_sha}" ]]
-              candidate="${repository}:${requested_ref}"
-            fi
-            digest="$(docker buildx imagetools inspect "${candidate}" | awk '$1 == "Digest:" {print $2; exit}')"
-            [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
-            resolved="${repository}@${digest}"
-            labels="$(docker buildx imagetools inspect "${resolved}" --format '{{json .Image.Config.Labels}}')"
-            jq -e --arg revision "${source_sha}" \
-              '.["org.opencontainers.image.revision"] == $revision' <<<"${labels}" >/dev/null
-            printf '%s\n' "${resolved}"
-          }
-          frontend_image="$(resolve_image ghcr.io/bs-stack-lab/ktb4-ian-community-fe "${FRONTEND_COMMIT}" "${FRONTEND_REF}")"
-          backend_image="$(resolve_image ghcr.io/bs-stack-lab/ktb4-ian-community-be "${BACKEND_COMMIT}" "${BACKEND_REF}")"
-          {
-            echo "frontend_image=${frontend_image}"
-            echo "backend_image=${backend_image}"
-          } >>"${GITHUB_OUTPUT}"
       - name: Configure AWS credentials through OIDC
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
@@ -171,9 +198,9 @@ jobs:
           OPERATION: ${{ needs.prepare.outputs.operation }}
           CONFIG_SHA: ${{ needs.prepare.outputs.config_sha }}
           FRONTEND_COMMIT: ${{ needs.prepare.outputs.frontend_commit }}
-          FRONTEND_IMAGE: ${{ steps.images.outputs.frontend_image }}
+          FRONTEND_IMAGE: ${{ needs.prepare.outputs.frontend_image }}
           BACKEND_COMMIT: ${{ needs.prepare.outputs.backend_commit }}
-          BACKEND_IMAGE: ${{ steps.images.outputs.backend_image }}
+          BACKEND_IMAGE: ${{ needs.prepare.outputs.backend_image }}
           INSTANCE_ID: ${{ vars.PRODUCTION_INSTANCE_ID }}
           PRODUCTION_ORIGIN: ${{ vars.PRODUCTION_ORIGIN }}
         run: |
