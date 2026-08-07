@@ -45,9 +45,9 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             --load \
-            --tag community-backend:${GITHUB_SHA} \
-            --build-arg OCI_REVISION=${GITHUB_SHA} \
-            --build-arg OCI_VERSION=${GITHUB_SHA} \
+            --tag "community-backend:${GITHUB_SHA}" \
+            --build-arg "OCI_REVISION=${GITHUB_SHA}" \
+            --build-arg "OCI_VERSION=${GITHUB_SHA}" \
             .
       - name: Verify UID 10001 runtime
         env:
@@ -79,9 +79,9 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             --load \
-            --tag community-backend:${GITHUB_SHA} \
-            --build-arg OCI_REVISION=${GITHUB_SHA} \
-            --build-arg OCI_VERSION=${GITHUB_SHA} \
+            --tag "community-backend:${GITHUB_SHA}" \
+            --build-arg "OCI_REVISION=${GITHUB_SHA}" \
+            --build-arg "OCI_VERSION=${GITHUB_SHA}" \
             backend
       - name: Prepare approved frontend baseline
         env:
@@ -104,8 +104,8 @@ jobs:
               --platform linux/amd64 \
               --load \
               --tag community-frontend:baseline \
-              --build-arg OCI_REVISION=${sha} \
-              --build-arg OCI_VERSION=${sha} \
+              --build-arg "OCI_REVISION=${sha}" \
+              --build-arg "OCI_VERSION=${sha}" \
               --file frontend-source/.bootstrap.Dockerfile \
               frontend-source
           fi
