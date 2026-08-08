@@ -210,8 +210,11 @@ Resources:
           CachePolicyId: !Ref MediaCachePolicy
           ResponseHeadersPolicyId: !Ref MediaResponseHeadersPolicy
         ViewerCertificate:
+          # The CloudFront default certificate fixes its security policy to
+          # TLSv1. Leave the other fields empty to match the managed value and
+          # avoid persistent drift. A stricter policy requires an ACM
+          # certificate and alternate domain name.
           CloudFrontDefaultCertificate: true
-          MinimumProtocolVersion: TLSv1.2_2021
       Tags:
         - Key: application
           Value: community-media-v2

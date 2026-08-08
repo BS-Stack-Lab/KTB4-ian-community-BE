@@ -24,6 +24,13 @@ before the Backend+Worker rollout.
 The scripts create and inspect resources but intentionally never execute a
 Change Set, import resources, backfill images, or deploy production.
 
+The distribution currently uses the default `*.cloudfront.net` certificate.
+CloudFront fixes that certificate's security policy to `TLSv1`, so the
+template leaves `MinimumProtocolVersion` unset to match the AWS-managed value
+and prevent false drift. Enforcing `TLSv1.2_2021` requires an alternate domain
+name and an ACM certificate issued in `us-east-1`; configure those together
+before adding the minimum protocol property.
+
 The API role can issue a short-lived Presigned GET for `private/media/*` and
 publish `MEDIA_REVISION` jobs to SQS. Browser access to that signed master is
 limited by the bucket CORS rule to the configured `FrontendOrigin`; CloudFront
