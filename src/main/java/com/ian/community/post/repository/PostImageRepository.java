@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
 public interface PostImageRepository extends JpaRepository<PostImage, Long> {
@@ -14,7 +15,13 @@ public interface PostImageRepository extends JpaRepository<PostImage, Long> {
 
     List<PostImage> findAllByAuthorPost(Post authorPost);
 
+    List<PostImage> findAllByAuthorPostOrderByDisplayOrderAsc(Post authorPost);
+
     void deleteByAuthorPost(Post authorPost);
 
     boolean existsByAuthorPost(Post authorPost);
+
+    boolean existsByMediaAssetMediaId(UUID mediaId);
+
+    long countByMediaAssetIsNull();
 }

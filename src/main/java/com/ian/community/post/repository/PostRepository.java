@@ -13,13 +13,13 @@ import java.util.Optional;
 
 @Repository
 public interface PostRepository extends JpaRepository<Post, Long>  {
-    @EntityGraph(attributePaths = "authorUser")
+    @EntityGraph(attributePaths = {"authorUser", "authorUser.profileMedia"})
     Optional<Post> findByPostIdAndPostDeletedFalse(Long postId); // 삭제되지 않은 게시글 단건 조회
 
-    @EntityGraph(attributePaths = "authorUser")
+    @EntityGraph(attributePaths = {"authorUser", "authorUser.profileMedia"})
     Slice<Post> findAllByPostDeletedFalseOrderByCreatedAtDescPostIdDesc(Pageable pageable);
 
-    @EntityGraph(attributePaths = "authorUser")
+    @EntityGraph(attributePaths = {"authorUser", "authorUser.profileMedia"})
     Page<Post> findAllByAuthorUser_UserIdAndPostDeletedFalse(Long userId, Pageable pageable); // 특정 유저의 삭제되지 않은 게시글 목록 조회
 
     boolean existsByPostIdAndPostDeletedFalse(Long postId); // 삭제되지 않은 게시글 존재 여부 확인

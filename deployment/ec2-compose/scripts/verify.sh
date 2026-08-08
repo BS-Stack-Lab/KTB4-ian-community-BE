@@ -19,10 +19,17 @@ fail() { echo "FAIL: $1" >&2; failures=$((failures + 1)); }
 
 compose_cmd "${release_env}" config --quiet && pass "Compose configuration" || fail "Compose configuration"
 services="$(compose_cmd "${release_env}" config --services | sort | tr '\n' ' ')"
-[[ "${services}" == "backend frontend mysql nginx " ]] && pass "exact four-service topology" || fail "unexpected services: ${services}"
+if [[ "${CI_MODE:-0}" == "1" ]]; then
+  expected_services="backend frontend mysql nginx "
+  runtime_services=(mysql backend frontend nginx)
+else
+  expected_services="backend frontend media-worker mysql nginx "
+  runtime_services=(mysql backend media-worker frontend nginx)
+fi
+[[ "${services}" == "${expected_services}" ]] && pass "expected service topology" || fail "unexpected services: ${services}"
 
 declare -A ids=()
-for service in mysql backend frontend nginx; do
+for service in "${runtime_services[@]}"; do
   ids[${service}]="$(compose_cmd "${release_env}" ps --quiet "${service}")"
   container_id="${ids[${service}]}"
   [[ -n "${container_id}" ]] || { fail "${service} container exists"; continue; }
@@ -37,7 +44,9 @@ for service in mysql backend frontend nginx; do
   [[ "${platform}" == linux/amd64 ]] && pass "${service} linux/amd64" || fail "${service} platform ${platform}"
 done
 
-for service in mysql backend frontend; do
+portless_services=(mysql backend frontend)
+if [[ "${CI_MODE:-0}" != "1" ]]; then portless_services+=(media-worker); fi
+for service in "${portless_services[@]}"; do
   bindings="$(docker inspect --format '{{json .HostConfig.PortBindings}}' "${ids[${service}]}")"
   [[ "${bindings}" == '{}' || "${bindings}" == null ]] && pass "${service} has no host ports" || fail "${service} publishes host ports"
 done
@@ -49,7 +58,9 @@ else
   [[ "${nginx_bindings}" == *'"8080/tcp"'* && "${nginx_bindings}" == *'"8443/tcp"'* ]] && pass "edge owns HTTP and HTTPS" || fail "edge port policy"
 fi
 
-for service in backend frontend nginx; do
+secured_services=(backend frontend nginx)
+if [[ "${CI_MODE:-0}" != "1" ]]; then secured_services+=(media-worker); fi
+for service in "${secured_services[@]}"; do
   container_id="${ids[${service}]}"
   [[ "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "${container_id}")" == true ]] && pass "${service} read-only root" || fail "${service} read-only root"
   [[ "$(docker inspect --format '{{json .HostConfig.CapDrop}}' "${container_id}")" == *'"ALL"'* ]] && pass "${service} drops capabilities" || fail "${service} capabilities"
@@ -61,6 +72,13 @@ done
 [[ "$(compose_cmd "${release_env}" exec -T frontend id -u)" == 101 ]] && pass "frontend UID 101" || fail "frontend UID"
 compose_cmd "${release_env}" exec -T backend sh -c 'test -w /var/lib/community/uploads' && pass "upload mount writable" || fail "upload mount writable"
 find "${COMMUNITY_DATA_ROOT}/uploads" -perm -0002 -print -quit | grep -q . && fail "world-writable upload path" || pass "uploads not world-writable"
+if [[ "${CI_MODE:-0}" != "1" ]]; then
+  [[ "$(compose_cmd "${release_env}" exec -T media-worker id -u)" == 10001 ]] && pass "media-worker UID 10001" || fail "media-worker UID"
+  compose_cmd "${release_env}" exec -T media-worker sh -c 'test -w /var/lib/community/media-worker' && pass "media scratch writable" || fail "media scratch writable"
+  find "${COMMUNITY_DATA_ROOT}/media-worker" -perm -0002 -print -quit | grep -q . && fail "world-writable media scratch" || pass "media scratch not world-writable"
+  [[ "$(docker inspect --format '{{.HostConfig.Memory}}' "${ids[media-worker]}")" == 536870912 ]] && pass "media-worker memory 512MiB" || fail "media-worker memory limit"
+  [[ "$(docker inspect --format '{{.HostConfig.NanoCpus}}' "${ids[media-worker]}")" == 500000000 ]] && pass "media-worker CPU 0.5" || fail "media-worker CPU limit"
+fi
 
 base_url="${VERIFY_PUBLIC_URL:-$(env_value "${release_env}" FRONTEND_ORIGIN)}"
 curl --fail --silent --show-error "${base_url}/healthz" | grep -qx ok && pass "edge health" || fail "edge health"
@@ -118,4 +136,4 @@ fi
   echo "Verification failed: ${failures} control(s)." >&2
   exit 1
 }
-echo "Four-service Compose runtime verification passed."
+echo "Compose runtime verification passed."

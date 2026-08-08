@@ -100,6 +100,17 @@ if [[ "${target_component}" == frontend || "${target_component}" == both ]]; the
   set_env_value "${candidate_env}" FRONTEND_IMAGE "${frontend_image}"
   set_env_value "${candidate_env}" FRONTEND_COMMIT "${frontend_commit}"
 fi
+
+media_runtime_env="${MEDIA_RUNTIME_ENV:-/etc/community/media-v2.env}"
+require_nonempty_file "${media_runtime_env}"
+for key in MEDIA_V2_ENABLED MEDIA_BUCKET MEDIA_QUEUE_URL MEDIA_API_ROLE_ARN MEDIA_WORKER_ROLE_ARN MEDIA_CDN_BASE_URL MEDIA_DISTRIBUTION_ID MEDIA_ENVIRONMENT MEDIA_TRANSFORM_VERSION; do
+  media_value="$(env_value "${media_runtime_env}" "${key}")"
+  [[ -n "${media_value}" ]] || {
+    echo "Missing Media V2 runtime setting: ${key}" >&2
+    exit 1
+  }
+  set_env_value "${candidate_env}" "${key}" "${media_value}"
+done
 if [[ "${target_component}" == backend || "${target_component}" == both ]]; then
   backend_image="${TARGET_BACKEND_IMAGE:?Set TARGET_BACKEND_IMAGE}"
   backend_commit="${TARGET_BACKEND_COMMIT:?Set TARGET_BACKEND_COMMIT}"

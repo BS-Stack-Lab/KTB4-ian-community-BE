@@ -2,6 +2,12 @@ package com.ian.community.post.service;
 
 import com.ian.community.common.exception.CustomException;
 import com.ian.community.common.exception.ErrorCode;
+import com.ian.community.common.media.MediaAsset;
+import com.ian.community.common.media.MediaPurpose;
+import com.ian.community.common.media.MediaService;
+import com.ian.community.common.media.MediaRevisionService;
+import com.ian.community.common.media.dto.MediaRevisionActivationRequest;
+import com.ian.community.common.media.dto.MediaResponse;
 import com.ian.community.post.domain.Post;
 import com.ian.community.post.domain.PostImage;
 import com.ian.community.post.domain.PostView;
@@ -18,6 +24,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +37,8 @@ public class PostService {
     private final PostRepository postRepository;
     private final PostImageRepository postImageRepository;
     private final PostViewRepository postViewRepository;
+    private final MediaService mediaService;
+    private final MediaRevisionService mediaRevisionService;
 
     @Transactional
     public Long createPost(Long userId, String content, String imageUrl) {
@@ -44,6 +55,25 @@ public class PostService {
         return savedPost.getPostId();
     }
 
+    @Transactional
+    public Long createPostV2(Long userId, String content, List<UUID> mediaIds) {
+        User user = getActiveUser(userId);
+        List<MediaAsset> media = mediaService.requireReadyMedia(
+                userId, MediaPurpose.POST, mediaIds
+        );
+        Post savedPost = postRepository.save(new Post(user, content));
+        for (int index = 0; index < media.size(); index++) {
+            MediaAsset asset = media.get(index);
+            postImageRepository.save(new PostImage(
+                    savedPost,
+                    mediaService.compatibilityUrl(asset),
+                    asset,
+                    index
+            ));
+        }
+        return savedPost.getPostId();
+    }
+
     public Slice<Post> getPosts(Pageable pageable) {
         return postRepository
                 .findAllByPostDeletedFalseOrderByCreatedAtDescPostIdDesc(
@@ -52,9 +82,22 @@ public class PostService {
     }
 
     public String getPostImageUrl(Post post) {
-        return postImageRepository.findByAuthorPost(post)
-                .map(PostImage::getImageUrl)
+        return postImageRepository.findAllByAuthorPostOrderByDisplayOrderAsc(post)
+                .stream()
+                .findFirst()
+                .map(image -> image.getMediaAsset() == null
+                        ? image.getImageUrl()
+                        : mediaService.compatibilityUrl(image.getMediaAsset()))
                 .orElse(null);
+    }
+
+    public List<MediaResponse> getPostMedia(Post post) {
+        return postImageRepository.findAllByAuthorPostOrderByDisplayOrderAsc(post)
+                .stream()
+                .map(PostImage::getMediaAsset)
+                .filter(java.util.Objects::nonNull)
+                .map(mediaService::toResponse)
+                .toList();
     }
 
     public Page<Post> getPostsByUser(Long userId, Pageable pageable) {
@@ -97,6 +140,75 @@ public class PostService {
     }
 
     @Transactional
+    public void updatePostV2(
+            Long userId,
+            Long postId,
+            String content,
+            List<UUID> mediaIds,
+            List<MediaRevisionActivationRequest> revisionActivations
+    ) {
+        User user = getActiveUser(userId);
+        Post post = getActivePost(postId);
+        validatePostOwner(post, user);
+        List<PostImage> previousImages = postImageRepository
+                .findAllByAuthorPostOrderByDisplayOrderAsc(post);
+        List<UUID> previousMediaIds = previousImages
+                .stream()
+                .map(PostImage::getMediaAsset)
+                .filter(java.util.Objects::nonNull)
+                .map(MediaAsset::getMediaId)
+                .toList();
+        boolean previousHasLegacyImage = previousImages.stream()
+                .anyMatch(image -> image.getMediaAsset() == null);
+        List<MediaAsset> media = mediaService.requireReadyMedia(
+                userId, MediaPurpose.POST, mediaIds
+        );
+        validateRevisionActivations(previousMediaIds, mediaIds, revisionActivations);
+
+        boolean contentChanged = !post.getContent().trim().equals(content.trim());
+        boolean mediaChanged = previousHasLegacyImage || !previousMediaIds.equals(mediaIds);
+        if (!contentChanged && !mediaChanged && revisionActivations.isEmpty()) {
+            throw new CustomException(ErrorCode.NO_CHANGES_DETECTED);
+        }
+
+        revisionActivations.forEach(activation -> mediaRevisionService.activate(
+                userId, activation.mediaId(), activation.revision()
+        ));
+        post.update(content);
+        postImageRepository.deleteByAuthorPost(post);
+        postImageRepository.flush();
+        for (int index = 0; index < media.size(); index++) {
+            MediaAsset asset = media.get(index);
+            postImageRepository.save(new PostImage(
+                    post,
+                    mediaService.compatibilityUrl(asset),
+                    asset,
+                    index
+            ));
+        }
+        postImageRepository.flush();
+        java.util.Set<UUID> retained = new java.util.HashSet<>(mediaIds);
+        previousMediaIds.stream()
+                .filter(previousId -> !retained.contains(previousId))
+                .forEach(previousId -> mediaService.deleteIfUnreferenced(userId, previousId));
+    }
+
+    private void validateRevisionActivations(
+            List<UUID> previousMediaIds,
+            List<UUID> nextMediaIds,
+            List<MediaRevisionActivationRequest> activations
+    ) {
+        Set<UUID> seen = new java.util.HashSet<>();
+        for (MediaRevisionActivationRequest activation : activations) {
+            if (!seen.add(activation.mediaId())
+                    || !previousMediaIds.contains(activation.mediaId())
+                    || !nextMediaIds.contains(activation.mediaId())) {
+                throw new CustomException(ErrorCode.INVALID_POST_REQUEST);
+            }
+        }
+    }
+
+    @Transactional
     public void deletePost(Long userId, Long postId) {
         User user = getActiveUser(userId);
         Post post = getActivePost(postId);
@@ -109,8 +221,17 @@ public class PostService {
 
         post.delete();
 
-        postImageRepository.findByAuthorPost(post)
-                .ifPresent(postImageRepository::delete);
+        List<UUID> previousMediaIds = postImageRepository
+                .findAllByAuthorPostOrderByDisplayOrderAsc(post)
+                .stream()
+                .map(PostImage::getMediaAsset)
+                .filter(java.util.Objects::nonNull)
+                .map(MediaAsset::getMediaId)
+                .distinct()
+                .toList();
+        postImageRepository.deleteByAuthorPost(post);
+        postImageRepository.flush();
+        previousMediaIds.forEach(previousId -> mediaService.deleteIfUnreferenced(userId, previousId));
     }
 
     private void increaseViewCountIfAllowed(User user, Post post) {
@@ -134,9 +255,9 @@ public class PostService {
     }
 
     private void updatePostImage(Post post, String imageUrl) {
-        PostImage postImage = postImageRepository
-                .findByAuthorPost(post)
-                .orElse(null);
+        List<PostImage> images = postImageRepository
+                .findAllByAuthorPostOrderByDisplayOrderAsc(post);
+        PostImage postImage = images.isEmpty() ? null : images.getFirst();
 
         if (postImage == null) {
             PostImage newPostImage = new PostImage(post, imageUrl);
@@ -144,7 +265,20 @@ public class PostService {
             return;
         }
 
+        List<UUID> previousMediaIds = images.stream()
+                .map(PostImage::getMediaAsset)
+                .filter(java.util.Objects::nonNull)
+                .map(MediaAsset::getMediaId)
+                .distinct()
+                .toList();
         postImage.updateImageUrl(imageUrl);
+        if (images.size() > 1) {
+            images.subList(1, images.size()).forEach(postImageRepository::delete);
+        }
+        postImageRepository.flush();
+        previousMediaIds.forEach(previousId -> mediaService.deleteIfUnreferenced(
+                post.getAuthorUser().getUserId(), previousId
+        ));
     }
 
     private User getActiveUser(Long userId) {

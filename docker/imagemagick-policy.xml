@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policymap [
+  <!ELEMENT policymap (policy)*>
+  <!ATTLIST policymap xmlns CDATA #FIXED ''>
+  <!ELEMENT policy EMPTY>
+  <!ATTLIST policy xmlns CDATA #FIXED '' domain NMTOKEN #REQUIRED
+    name NMTOKEN #IMPLIED pattern CDATA #IMPLIED rights NMTOKEN #IMPLIED
+    stealth NMTOKEN #IMPLIED value CDATA #IMPLIED>
+]>
+<policymap>
+  <policy domain="resource" name="memory" value="128MiB"/>
+  <policy domain="resource" name="map" value="256MiB"/>
+  <policy domain="resource" name="disk" value="384MiB"/>
+  <policy domain="resource" name="width" value="12KP"/>
+  <policy domain="resource" name="height" value="12KP"/>
+  <policy domain="resource" name="area" value="50MP"/>
+  <policy domain="resource" name="thread" value="1"/>
+  <policy domain="resource" name="time" value="120"/>
+
+  <policy domain="delegate" rights="none" pattern="*"/>
+  <policy domain="filter" rights="none" pattern="*"/>
+  <policy domain="path" rights="none" pattern="@*"/>
+  <policy domain="path" rights="none" pattern="*"/>
+  <policy domain="path" rights="read|write" pattern="/var/lib/community/media-worker/*"/>
+
+  <policy domain="coder" rights="none" pattern="*"/>
+  <policy domain="coder" rights="read|write" pattern="JPEG"/>
+  <policy domain="coder" rights="read|write" pattern="PNG"/>
+  <policy domain="coder" rights="read|write" pattern="WEBP"/>
+</policymap>

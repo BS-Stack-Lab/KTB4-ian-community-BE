@@ -155,6 +155,15 @@ jobs:
           COMPOSE_ROOT=${compose_root}
           FRONTEND_ORIGIN=http://127.0.0.1:${CI_HTTP_PORT}
           COOKIE_SECURE=false
+          MEDIA_V2_ENABLED=true
+          MEDIA_BUCKET=community-media-ci
+          MEDIA_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/000000000000/community-media-ci
+          MEDIA_API_ROLE_ARN=arn:aws:iam::000000000000:role/community-media-api-ci
+          MEDIA_WORKER_ROLE_ARN=arn:aws:iam::000000000000:role/community-media-worker-ci
+          MEDIA_CDN_BASE_URL=https://example.cloudfront.net
+          MEDIA_DISTRIBUTION_ID=E0000000000000
+          MEDIA_ENVIRONMENT=ci
+          MEDIA_TRANSFORM_VERSION=1
           CI_HTTP_PORT=${CI_HTTP_PORT}
           EOF
           export COMPOSE_PROJECT_NAME=community-be-${GITHUB_RUN_ID}

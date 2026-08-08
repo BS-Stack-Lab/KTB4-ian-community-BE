@@ -131,13 +131,18 @@ validate_release_env() {
     exit 1
   fi
 
-  for key in FRONTEND_IMAGE BACKEND_IMAGE MYSQL_IMAGE NGINX_IMAGE FRONTEND_ORIGIN FRONTEND_COMMIT BACKEND_COMMIT CONFIG_SHA COMPOSE_ROOT; do
+  for key in FRONTEND_IMAGE BACKEND_IMAGE MYSQL_IMAGE NGINX_IMAGE FRONTEND_ORIGIN FRONTEND_COMMIT BACKEND_COMMIT CONFIG_SHA COMPOSE_ROOT MEDIA_V2_ENABLED MEDIA_BUCKET MEDIA_QUEUE_URL MEDIA_API_ROLE_ARN MEDIA_WORKER_ROLE_ARN MEDIA_CDN_BASE_URL MEDIA_DISTRIBUTION_ID MEDIA_ENVIRONMENT MEDIA_TRANSFORM_VERSION; do
     value="$(env_value "${env_file}" "${key}")"
     [[ -n "${value}" ]] || {
       echo "Missing required release setting: ${key}" >&2
       exit 1
     }
   done
+
+  [[ "$(env_value "${env_file}" MEDIA_V2_ENABLED)" == true ]] || {
+    echo "MEDIA_V2_ENABLED must be true for the Media V2 runtime release." >&2
+    exit 1
+  }
 
   value="$(env_value "${env_file}" COMPOSE_ROOT)"
   [[ "${value}" == /* && "${value}" != *'/../'* && "${value}" != */.. ]] || {

@@ -1,0 +1,7 @@
+[
+  {"ParameterKey":"EnvironmentName","ParameterValue":"staging"},
+  {"ParameterKey":"ComputePrincipalArn","ParameterValue":"arn:aws:iam::000000000000:role/existing-ec2-role"},
+  {"ParameterKey":"FrontendOrigin","ParameterValue":"https://staging.example.com"},
+  {"ParameterKey":"AlarmTopicArn","ParameterValue":""},
+  {"ParameterKey":"TransformVersion","ParameterValue":"1"}
+]
