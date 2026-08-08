@@ -211,6 +211,31 @@ is_registry_release_env() {
   )
 }
 
+is_pre_media_registry_release_env() {
+  local env_file="$1" key value config_sha compose_root expected_root
+  [[ -s "${env_file}" ]] || return 1
+  [[ -z "$(env_value "${env_file}" MEDIA_V2_ENABLED)" ]] || return 1
+
+  for key in FRONTEND_IMAGE BACKEND_IMAGE MYSQL_IMAGE NGINX_IMAGE FRONTEND_ORIGIN FRONTEND_COMMIT BACKEND_COMMIT CONFIG_SHA COMPOSE_ROOT; do
+    value="$(env_value "${env_file}" "${key}")"
+    [[ -n "${value}" ]] || return 1
+  done
+
+  for key in FRONTEND_COMMIT BACKEND_COMMIT CONFIG_SHA; do
+    value="$(env_value "${env_file}" "${key}")"
+    [[ "${value}" =~ ^[0-9a-f]{40}$ ]] || return 1
+  done
+
+  config_sha="$(env_value "${env_file}" CONFIG_SHA)"
+  compose_root="$(env_value "${env_file}" COMPOSE_ROOT)"
+  [[ "${compose_root}" == /* && "${compose_root}" != *'/../'* && "${compose_root}" != */.. ]] || return 1
+  if [[ "${ALLOW_LOCAL_IMAGES:-0}" != "1" ]]; then
+    expected_root="${COMMUNITY_CONFIG_ROOT}/${config_sha}/deployment/ec2-compose"
+    [[ "${compose_root}" == "${expected_root}" ]] || return 1
+  fi
+  [[ -f "${compose_root}/compose.yaml" && -x "${compose_root}/scripts/verify.sh" ]]
+}
+
 preserve_legacy_compose() {
   local bootstrap_root="$1"
   local current_env="$2"

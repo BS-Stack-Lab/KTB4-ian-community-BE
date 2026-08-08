@@ -10,6 +10,7 @@ trap 'rm -rf -- "${test_root}"' EXIT
 legacy_root="${test_root}/bootstrap"
 archive_root="${test_root}/archive"
 legacy_env="${test_root}/legacy.env"
+pre_media_env="${test_root}/pre-media.env"
 registry_env="${test_root}/registry.env"
 install -d -m 0700 "${legacy_root}"
 printf 'name: legacy\n' >"${legacy_root}/compose.yaml"
@@ -31,6 +32,30 @@ preserved_root="$(env_value "${legacy_env}" LEGACY_COMPOSE_ROOT)"
 [[ "$(<"${preserved_root}/compose.yaml")" == 'name: legacy' ]]
 preserve_legacy_compose "${legacy_root}" "${legacy_env}" "${archive_root}" >/dev/null
 [[ "$(find "${archive_root}" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" == 1 ]]
+
+pre_media_root="${test_root}/pre-media-config"
+install -d -m 0700 "${pre_media_root}/scripts"
+printf 'name: community\n' >"${pre_media_root}/compose.yaml"
+printf '#!/usr/bin/env bash\nexit 0\n' >"${pre_media_root}/scripts/verify.sh"
+chmod 0755 "${pre_media_root}/scripts/verify.sh"
+cat >"${pre_media_env}" <<EOF
+FRONTEND_IMAGE=community-frontend:test
+BACKEND_IMAGE=community-backend:test
+MYSQL_IMAGE=mysql:test
+NGINX_IMAGE=nginx:test
+FRONTEND_ORIGIN=http://127.0.0.1:18080
+FRONTEND_COMMIT=1111111111111111111111111111111111111111
+BACKEND_COMMIT=2222222222222222222222222222222222222222
+CONFIG_SHA=3333333333333333333333333333333333333333
+COMPOSE_ROOT=${pre_media_root}
+EOF
+
+ALLOW_LOCAL_IMAGES=1 is_pre_media_registry_release_env "${pre_media_env}"
+set_env_value "${pre_media_env}" MEDIA_V2_ENABLED true
+if ALLOW_LOCAL_IMAGES=1 is_pre_media_registry_release_env "${pre_media_env}"; then
+  echo "FAIL: Media V2 release state was accepted as a pre-Media registry release." >&2
+  exit 1
+fi
 
 cat >"${registry_env}" <<'EOF'
 FRONTEND_IMAGE=community-frontend:test
@@ -60,4 +85,4 @@ if ALLOW_LOCAL_IMAGES=1 ALLOW_HTTP_ORIGIN=1 is_registry_release_env "${registry_
   exit 1
 fi
 
-echo "PASS: legacy release state is isolated and its Compose assets are preserved once."
+echo "PASS: legacy and pre-Media registry release states are classified safely."

@@ -29,15 +29,19 @@ compose_cmd "${release_env}" config --quiet
 current_state=none
 if is_registry_release_env "${current_env}"; then
   current_state=registry
+elif is_pre_media_registry_release_env "${current_env}"; then
+  current_state=pre-media-registry
 elif [[ -s "${current_env}" ]]; then
   current_state=legacy
 fi
 
 reconverge_current() {
-  if [[ "${current_state}" == registry ]]; then
+  if [[ "${current_state}" == registry || "${current_state}" == pre-media-registry ]]; then
+    local current_compose_root
+    current_compose_root="$(env_value "${current_env}" COMPOSE_ROOT)"
     echo "Candidate failed; reconverging the prior current release." >&2
     compose_cmd "${current_env}" up --detach --remove-orphans --wait --wait-timeout 300
-    RELEASE_ENV="${current_env}" "${SCRIPT_DIR}/verify.sh"
+    RELEASE_ENV="${current_env}" "${current_compose_root}/scripts/verify.sh"
     echo "Prior current release is healthy again." >&2
   elif [[ "${current_state}" == legacy ]]; then
     local legacy_compose_root
@@ -71,7 +75,7 @@ if ! RELEASE_ENV="${release_env}" "${SCRIPT_DIR}/verify.sh"; then
   exit 1
 fi
 
-if [[ "${current_state}" == registry ]]; then
+if [[ "${current_state}" == registry || "${current_state}" == pre-media-registry ]]; then
   atomic_copy "${current_env}" "${previous_env}"
   if [[ -s "${current_manifest}" ]]; then
     atomic_copy "${current_manifest}" "${previous_manifest}"
