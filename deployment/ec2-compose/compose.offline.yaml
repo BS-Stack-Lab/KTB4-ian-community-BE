@@ -3,6 +3,8 @@ services:
     pull_policy: never
   backend:
     pull_policy: never
+  media-worker:
+    pull_policy: never
   frontend:
     pull_policy: never
   nginx:

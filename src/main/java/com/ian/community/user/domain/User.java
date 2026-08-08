@@ -1,5 +1,6 @@
 package com.ian.community.user.domain;
 
+import com.ian.community.common.media.MediaAsset;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -29,8 +30,12 @@ public class User {
     @Column(length = 10, nullable = false)
     private String nickname;
 
-    @Column(name = "profile_image", length = 100, nullable = false)
+    @Column(name = "profile_image", length = 500, nullable = false)
     private String profileImage;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "profile_media_id")
+    private MediaAsset profileMedia;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -75,6 +80,13 @@ public class User {
 
     public void updateProfile(String profileImage) {
         this.profileImage = profileImage;
+        this.profileMedia = null;
+        this.profileUpdatedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+    }
+
+    public void updateProfileMedia(MediaAsset profileMedia, String compatibilityUrl) {
+        this.profileMedia = profileMedia;
+        this.profileImage = compatibilityUrl;
         this.profileUpdatedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
     }
 
@@ -83,6 +95,7 @@ public class User {
         this.password = null;
         this.nickname = "알 수 없음";
         this.profileImage = DEFAULT_PROFILE_IMAGE;
+        this.profileMedia = null;
         this.userDeleted = true;
         this.deletedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
     }

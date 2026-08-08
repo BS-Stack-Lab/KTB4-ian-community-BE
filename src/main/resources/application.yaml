@@ -27,3 +27,22 @@ jwt:
   secret: ${JWT_SECRET}
   access-token-expiration-seconds: 600
   refresh-token-expiration-seconds: 604800
+
+app:
+  runtime: ${APP_RUNTIME:api}
+  media:
+    enabled: ${MEDIA_V2_ENABLED:false}
+    aws-region: ${AWS_REGION:ap-northeast-2}
+    bucket: ${MEDIA_BUCKET:}
+    queue-url: ${MEDIA_QUEUE_URL:}
+    role-arn: ${MEDIA_ROLE_ARN:}
+    cdn-base-url: ${MEDIA_CDN_BASE_URL:}
+    distribution-id: ${MEDIA_DISTRIBUTION_ID:}
+    environment-name: ${MEDIA_ENVIRONMENT:local}
+    transform-version: ${MEDIA_TRANSFORM_VERSION:1}
+    upload-expiration-seconds: 600
+    worker:
+      scratch-root: ${MEDIA_WORKER_SCRATCH:/var/lib/community/media-worker}
+      wait-time-seconds: 20
+      visibility-timeout-seconds: 300
+      max-receive-count: 5

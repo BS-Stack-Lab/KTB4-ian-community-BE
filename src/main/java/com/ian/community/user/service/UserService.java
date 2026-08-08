@@ -2,9 +2,14 @@ package com.ian.community.user.service;
 
 import com.ian.community.common.exception.CustomException;
 import com.ian.community.common.exception.ErrorCode;
+import com.ian.community.common.media.MediaAsset;
+import com.ian.community.common.media.MediaPurpose;
+import com.ian.community.common.media.MediaService;
+import com.ian.community.common.media.dto.MediaResponse;
 import com.ian.community.user.domain.User;
 import com.ian.community.user.dto.request.*;
 import com.ian.community.user.dto.response.UserResponse;
+import com.ian.community.user.dto.response.ProfileMediaResponse;
 import com.ian.community.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -12,12 +17,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final MediaService mediaService;
 
     private User getActiveUser(Long userId) {
         User user = userRepository.findById(userId)
@@ -130,6 +137,7 @@ public class UserService {
     public void updateProfile(Long userId, String profileImage) {
 
         User user = getActiveUser(userId);
+        MediaAsset previousMedia = user.getProfileMedia();
 
         if (user.getProfileImage()
                 .equals(profileImage)) {
@@ -137,6 +145,42 @@ public class UserService {
         }
 
         user.updateProfile(profileImage);
+        userRepository.flush();
+        if (previousMedia != null) {
+            mediaService.deleteIfUnreferenced(userId, previousMedia.getMediaId());
+        }
+    }
+
+    @Transactional
+    public MediaResponse updateProfileMedia(Long userId, UUID mediaId) {
+        User user = getActiveUser(userId);
+        MediaAsset previousMedia = user.getProfileMedia();
+        MediaAsset media = mediaService.requireReadyMedia(
+                userId,
+                MediaPurpose.PROFILE,
+                java.util.List.of(mediaId)
+        ).getFirst();
+        user.updateProfileMedia(media, mediaService.compatibilityUrl(media));
+        userRepository.flush();
+        if (previousMedia != null && !previousMedia.getMediaId().equals(mediaId)) {
+            mediaService.deleteIfUnreferenced(userId, previousMedia.getMediaId());
+        }
+        return mediaService.toResponse(media);
+    }
+
+    @Transactional(readOnly = true)
+    public ProfileMediaResponse getProfileMedia(Long authenticatedUserId, Long requestedUserId) {
+        if (!Objects.equals(authenticatedUserId, requestedUserId)) {
+            throw new CustomException(ErrorCode.FORBIDDEN);
+        }
+        User user = getActiveUser(requestedUserId);
+        MediaResponse profileMedia = user.getProfileMedia() == null
+                ? null
+                : mediaService.toResponse(user.getProfileMedia());
+        return new ProfileMediaResponse(
+                profileMedia,
+                profileMedia == null ? user.getProfileImage() : null
+        );
     }
 
     @Transactional

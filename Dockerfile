@@ -30,7 +30,10 @@ LABEL org.opencontainers.image.source="${OCI_SOURCE}" \
       org.opencontainers.image.revision="${OCI_REVISION}" \
       org.opencontainers.image.version="${OCI_VERSION}"
 
-RUN groupadd --gid 10001 community \
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends imagemagick \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 community \
     && useradd \
         --uid 10001 \
         --gid community \
@@ -39,7 +42,9 @@ RUN groupadd --gid 10001 community \
         --shell /usr/sbin/nologin \
         community \
     && install -d -o community -g community -m 0750 \
-        /app /var/lib/community/uploads
+        /app /var/lib/community/uploads /var/lib/community/media-worker
+
+COPY docker/imagemagick-policy.xml /etc/ImageMagick-6/policy.xml
 
 COPY --from=builder --chown=community:community \
     /workspace/build/libs/community.jar \

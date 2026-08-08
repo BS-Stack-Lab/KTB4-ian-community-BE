@@ -26,7 +26,7 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
             Post post
     );
 
-    @EntityGraph(attributePaths = {"post", "post.authorUser"})
+    @EntityGraph(attributePaths = {"post", "post.authorUser", "post.authorUser.profileMedia"})
     Slice<Bookmark> findAllByUserAndPost_PostDeletedFalseOrderByCreatedAtDescBookmarkIdDesc(
             User user,
             Pageable pageable

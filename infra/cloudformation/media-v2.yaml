@@ -1,0 +1,397 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Media V2 private upload, processing queue, and CloudFront delivery infrastructure
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: production
+    AllowedPattern: '[a-z0-9-]+'
+  MediaBucketName:
+    Type: String
+    Default: ''
+    Description: Optional globally unique bucket name; leave empty for an AWS-generated name
+  ComputePrincipalArn:
+    Type: String
+    Description: ARN of the existing EC2 instance role allowed to assume Media API and Worker roles
+  FrontendOrigin:
+    Type: String
+    Description: Exact HTTPS browser origin allowed to submit Presigned POST uploads
+    AllowedPattern: 'https://[^/]+'
+  AlarmTopicArn:
+    Type: String
+    Default: ''
+    Description: Optional SNS topic ARN for alarm notifications
+  QueueAgeAlarmSeconds:
+    Type: Number
+    Default: 300
+    MinValue: 60
+  TransformVersion:
+    Type: Number
+    Default: 1
+    MinValue: 1
+
+Conditions:
+  HasBucketName: !Not [!Equals [!Ref MediaBucketName, '']]
+  HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, '']]
+
+Resources:
+  MediaDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${EnvironmentName}-community-media-dlq'
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: application
+          Value: community-media-v2
+
+  MediaQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${EnvironmentName}-community-media'
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt MediaDeadLetterQueue.Arn
+        maxReceiveCount: 5
+      Tags:
+        - Key: application
+          Value: community-media-v2
+
+  MediaQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref MediaQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowMediaBucketEvents
+            Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt MediaQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !If
+                  - HasBucketName
+                  - !Sub 'arn:${AWS::Partition}:s3:::${MediaBucketName}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-community-media-${AWS::AccountId}-${AWS::Region}'
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: MediaQueuePolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If
+        - HasBucketName
+        - !Ref MediaBucketName
+        - !Sub '${EnvironmentName}-community-media-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, HEAD, POST]
+            AllowedOrigins: [!Ref FrontendOrigin]
+            ExposedHeaders: [ETag]
+            MaxAge: 600
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireIncompleteAndTemporaryUploads
+            Status: Enabled
+            Prefix: private/uploads/
+            ExpirationInDays: 1
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt MediaQueue.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: private/uploads/
+                  - Name: suffix
+                    Value: /source
+      Tags:
+        - Key: application
+          Value: community-media-v2
+        - Key: transform-version
+          Value: !Ref TransformVersion
+
+  MediaOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${EnvironmentName}-community-media-oac'
+        Description: SigV4 access restricted to immutable public media variants
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  MediaCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${EnvironmentName}-community-media-immutable'
+        Comment: One-year immutable cache for revisioned WebP variants
+        DefaultTTL: 31536000
+        MaxTTL: 31536000
+        MinTTL: 31536000
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+  MediaResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${EnvironmentName}-community-media-security'
+        Comment: Browser security headers for public image variants
+        SecurityHeadersConfig:
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: no-referrer
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            IncludeSubdomains: true
+            Override: true
+
+  MediaDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub '${EnvironmentName} Community Media V2'
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_200
+        Origins:
+          - Id: media-s3-origin
+            DomainName: !GetAtt MediaBucket.RegionalDomainName
+            OriginPath: /public
+            OriginAccessControlId: !GetAtt MediaOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: media-s3-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          Compress: true
+          CachePolicyId: !Ref MediaCachePolicy
+          ResponseHeadersPolicyId: !Ref MediaResponseHeadersPolicy
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+          MinimumProtocolVersion: TLSv1.2_2021
+      Tags:
+        - Key: application
+          Value: community-media-v2
+
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !Sub '${MediaBucket.Arn}'
+              - !Sub '${MediaBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Sid: AllowCloudFrontPublicVariantsOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${MediaBucket.Arn}/public/media/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${MediaDistribution}'
+
+  MediaApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-community-media-api'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref ComputePrincipalArn
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: media-upload-coordination
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: !Sub '${MediaBucket.Arn}/private/uploads/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub '${MediaBucket.Arn}/private/media/*'
+                  - !Sub '${MediaBucket.Arn}/public/media/*'
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt MediaQueue.Arn
+              - Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${MediaDistribution}'
+
+  MediaWorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-community-media-worker'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref ComputePrincipalArn
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: media-transform-worker
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:ChangeMessageVisibility
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt MediaQueue.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: !Sub '${MediaBucket.Arn}/private/uploads/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub '${MediaBucket.Arn}/private/media/*'
+                  - !Sub '${MediaBucket.Arn}/public/media/*'
+              - Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${MediaDistribution}'
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: Community/MediaV2
+
+  QueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${EnvironmentName}-community-media-queue-age'
+      AlarmDescription: Media queue oldest message age exceeds the processing objective
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt MediaQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: !Ref QueueAgeAlarmSeconds
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  DeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${EnvironmentName}-community-media-dlq-visible'
+      AlarmDescription: At least one media job is visible in the dead-letter queue
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt MediaDeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  ProcessingFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${EnvironmentName}-community-media-processing-failures'
+      AlarmDescription: Worker reported permanent or retry-exhausted processing failures
+      Namespace: Community/MediaV2
+      MetricName: ProcessingFailures
+      Dimensions:
+        - Name: Environment
+          Value: !Ref EnvironmentName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+Outputs:
+  MediaBucketName:
+    Value: !Ref MediaBucket
+  MediaQueueUrl:
+    Value: !Ref MediaQueue
+  MediaDeadLetterQueueUrl:
+    Value: !Ref MediaDeadLetterQueue
+  MediaApiRoleArn:
+    Value: !GetAtt MediaApiRole.Arn
+  MediaWorkerRoleArn:
+    Value: !GetAtt MediaWorkerRole.Arn
+  MediaDistributionId:
+    Value: !Ref MediaDistribution
+  MediaCdnBaseUrl:
+    Value: !Sub 'https://${MediaDistribution.DomainName}'

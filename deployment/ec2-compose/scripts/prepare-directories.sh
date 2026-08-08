@@ -31,6 +31,7 @@ ensure_group "${COMMUNITY_TLS_GID}" community-tls
 install -d -o root -g root -m 0750 "${COMMUNITY_DATA_ROOT}"
 install -d -o 999 -g 999 -m 0750 "${COMMUNITY_DATA_ROOT}/mysql"
 install -d -o 10001 -g 10001 -m 0750 "${COMMUNITY_DATA_ROOT}/uploads"
+install -d -o 10001 -g 10001 -m 0750 "${COMMUNITY_DATA_ROOT}/media-worker"
 install -d -o root -g root -m 0755 "${COMMUNITY_DATA_ROOT}/acme" "${COMMUNITY_DATA_ROOT}/acme/.well-known" "${COMMUNITY_DATA_ROOT}/acme/.well-known/acme-challenge"
 install -d -o root -g root -m 0700 "${COMMUNITY_DATA_ROOT}/backup" "${COMMUNITY_DATA_ROOT}/evidence" "${COMMUNITY_RELEASE_ROOT}" "${COMMUNITY_CONFIG_ROOT}"
 install -d -o root -g community-secrets -m 0750 "${COMMUNITY_SECRETS_DIR}"
