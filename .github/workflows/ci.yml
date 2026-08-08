@@ -155,7 +155,7 @@ jobs:
           COMPOSE_ROOT=${compose_root}
           FRONTEND_ORIGIN=http://127.0.0.1:${CI_HTTP_PORT}
           COOKIE_SECURE=false
-          MEDIA_V2_ENABLED=false
+          MEDIA_V2_ENABLED=true
           MEDIA_BUCKET=community-media-ci
           MEDIA_QUEUE_URL=https://sqs.ap-northeast-2.amazonaws.com/000000000000/community-media-ci
           MEDIA_API_ROLE_ARN=arn:aws:iam::000000000000:role/community-media-api-ci
