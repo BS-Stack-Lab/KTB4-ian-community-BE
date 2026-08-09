@@ -191,8 +191,10 @@ class MediaPipelineE2ETest {
         mutate("POST", "/api/v2/media/" + mediaId + "/complete", null, 202);
 
         JsonNode ready = waitForMediaStatus(mediaId, "READY", Duration.ofMinutes(2));
-        assertEquals(3, ready.path("variants").size());
-        assertWebpVariants(mediaId, 1, 3);
+        assertEquals(1, ready.path("variants").size());
+        assertEquals(1344, ready.path("variants").get(0).path("width").asInt());
+        assertEquals(864, ready.path("variants").get(0).path("height").asInt());
+        assertWebpVariants(mediaId, 1, 1, 1344, 864);
         if (awsMode) assertCloudFrontDelivery(mediaId);
         assertSourceWasRemoved(mediaId);
 
@@ -200,16 +202,16 @@ class MediaPipelineE2ETest {
         await("duplicate S3 event consumption", Duration.ofSeconds(20), () ->
                 approximateMessages(queueUrl) == 0
         );
-        assertWebpVariants(mediaId, 1, 3);
+        assertWebpVariants(mediaId, 1, 1, 1344, 864);
 
         JsonNode revision = mutate(
                 "POST", "/api/v2/media/" + mediaId + "/revisions",
                 """
                         {
                           "frame":"POST_LANDSCAPE",
-                          "crop":{"x":0.1,"y":0,"width":0.8,"height":0.8},
+                          "crop":{"x":0.02,"y":0.02,"width":0.96,"height":0.96},
                           "zoom":1.5,
-                          "position":{"x":0.5,"y":0.4}
+                          "position":{"x":0.5,"y":0.5}
                         }
                         """,
                 202
@@ -219,7 +221,10 @@ class MediaPipelineE2ETest {
                 mediaId, revisionNumber, "READY", Duration.ofMinutes(2)
         );
         assertEquals(1.5, readyRevision.path("zoom").asDouble(), 0.0001);
-        assertEquals(2, readyRevision.path("variants").size());
+        assertEquals(1, readyRevision.path("variants").size());
+        assertEquals(1344, readyRevision.path("variants").get(0).path("width").asInt());
+        assertEquals(864, readyRevision.path("variants").get(0).path("height").asInt());
+        assertWebpVariants(mediaId, revisionNumber, 1, 1344, 864);
         assertEquals(1, getJson("/api/v2/media/" + mediaId, 200)
                 .path("mediaRevision").asInt());
         List<String> revisionKeys = variantKeys(mediaId, revisionNumber);
@@ -588,7 +593,13 @@ class MediaPipelineE2ETest {
         return output.toByteArray();
     }
 
-    private void assertWebpVariants(UUID mediaId, int revision, int expectedCount) {
+    private void assertWebpVariants(
+            UUID mediaId,
+            int revision,
+            int expectedCount,
+            int expectedWidth,
+            int expectedHeight
+    ) {
         List<String> keys = variantKeys(mediaId, revision);
         assertEquals(expectedCount, keys.size());
         for (String key : keys) {
@@ -598,6 +609,12 @@ class MediaPipelineE2ETest {
             assertTrue(value.length > 12);
             assertEquals("RIFF", new String(value, 0, 4, StandardCharsets.US_ASCII));
             assertEquals("WEBP", new String(value, 8, 4, StandardCharsets.US_ASCII));
+            assertEquals("VP8 ", new String(value, 12, 4, StandardCharsets.US_ASCII));
+            assertTrue(value.length >= 30);
+            int width = (value[26] & 0xff) | ((value[27] & 0x3f) << 8);
+            int height = (value[28] & 0xff) | ((value[29] & 0x3f) << 8);
+            assertEquals(expectedWidth, width);
+            assertEquals(expectedHeight, height);
         }
     }
 

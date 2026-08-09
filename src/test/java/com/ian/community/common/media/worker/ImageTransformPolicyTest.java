@@ -53,13 +53,36 @@ class ImageTransformPolicyTest {
     @Test
     void variantsNeverUpscaleBeyondTheEligibleSourceCrop() {
         assertEquals(
-                List.of(MediaVariantType.POST_LANDSCAPE_1X, MediaVariantType.POST_LANDSCAPE_2X),
+                List.of(MediaVariantType.POST_LANDSCAPE_3X),
+                engine.eligibleVariants(MediaFrame.POST_LANDSCAPE, 1344, 864)
+        );
+        assertEquals(
+                List.of(),
                 engine.eligibleVariants(MediaFrame.POST_LANDSCAPE, 900, 600)
         );
         assertEquals(
                 List.of(MediaVariantType.PROFILE_SMALL, MediaVariantType.PROFILE_MEDIUM),
                 engine.eligibleVariants(MediaFrame.PROFILE, 200, 200)
         );
+    }
+
+    @Test
+    void postVariantCropsAndResizesInOneImagemagickCommand() {
+        List<String> command = engine.variantCommand(
+                Path.of("master.webp"),
+                Path.of("post-landscape-1344.webp"),
+                new ImageTransformEngine.CropPixels(100, 50, 1600, 1029),
+                MediaVariantType.POST_LANDSCAPE_3X
+        );
+
+        assertEquals(List.of(
+                "convert", "master.webp",
+                "-crop", "1600x1029+100+50", "+repage",
+                "-resize", "1344x864!",
+                "-strip", "-colorspace", "sRGB",
+                "-quality", "82", "post-landscape-1344.webp"
+        ), command);
+        assertFalse(command.contains("crop.webp"));
     }
 
     @Test
