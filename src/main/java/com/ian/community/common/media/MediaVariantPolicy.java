@@ -14,8 +14,14 @@ public final class MediaVariantPolicy {
                     MediaVariantType.PROFILE_MEDIUM,
                     MediaVariantType.PROFILE_LARGE
             );
-            case POST_PORTRAIT -> List.of(MediaVariantType.POST_PORTRAIT_3X);
-            case POST_LANDSCAPE -> List.of(MediaVariantType.POST_LANDSCAPE_3X);
+            case POST_PORTRAIT -> List.of(
+                    MediaVariantType.POST_PORTRAIT_1X,
+                    MediaVariantType.POST_PORTRAIT_3X
+            );
+            case POST_LANDSCAPE -> List.of(
+                    MediaVariantType.POST_LANDSCAPE_1X,
+                    MediaVariantType.POST_LANDSCAPE_3X
+            );
         };
     }
 
@@ -26,15 +32,19 @@ public final class MediaVariantPolicy {
         if (frame == MediaFrame.PROFILE || variants.isEmpty()) {
             return variants;
         }
-        MediaVariantType preferred = preferredFor(frame);
+        List<MediaVariant> supported = generatedFor(frame).stream()
+                .flatMap(type -> variants.stream()
+                        .filter(variant -> variant.getVariantType() == type)
+                        .findFirst()
+                        .stream())
+                .toList();
+        if (!supported.isEmpty()) {
+            return supported;
+        }
         return variants.stream()
-                .filter(variant -> variant.getVariantType() == preferred)
-                .findFirst()
+                .max(Comparator.comparingInt(MediaVariant::getWidth))
                 .map(List::of)
-                .orElseGet(() -> variants.stream()
-                        .max(Comparator.comparingInt(MediaVariant::getWidth))
-                        .map(List::of)
-                        .orElseGet(List::of));
+                .orElseGet(List::of);
     }
 
     public static MediaVariantType preferredFor(MediaFrame frame) {

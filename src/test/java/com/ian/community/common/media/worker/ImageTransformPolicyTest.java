@@ -53,12 +53,19 @@ class ImageTransformPolicyTest {
     @Test
     void variantsNeverUpscaleBeyondTheEligibleSourceCrop() {
         assertEquals(
-                List.of(MediaVariantType.POST_LANDSCAPE_3X),
+                List.of(
+                        MediaVariantType.POST_LANDSCAPE_1X,
+                        MediaVariantType.POST_LANDSCAPE_3X
+                ),
                 engine.eligibleVariants(MediaFrame.POST_LANDSCAPE, 1344, 864)
         );
         assertEquals(
-                List.of(),
+                List.of(MediaVariantType.POST_LANDSCAPE_1X),
                 engine.eligibleVariants(MediaFrame.POST_LANDSCAPE, 900, 600)
+        );
+        assertEquals(
+                List.of(),
+                engine.eligibleVariants(MediaFrame.POST_LANDSCAPE, 447, 287)
         );
         assertEquals(
                 List.of(MediaVariantType.PROFILE_SMALL, MediaVariantType.PROFILE_MEDIUM),
