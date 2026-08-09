@@ -81,9 +81,10 @@ class MediaPipelineE2ETest {
         network = Network.newNetwork();
         resources.add(network);
 
-        mysql = new MySQLContainer(DockerImageName.parse(System.getProperty(
+        DockerImageName mysqlImage = DockerImageName.parse(System.getProperty(
                 "mediaE2e.mysqlImage", "mysql:8.4.11"
-        )))
+        )).asCompatibleSubstituteFor("mysql");
+        mysql = new MySQLContainer(mysqlImage)
                 .withDatabaseName("community")
                 .withUsername("community")
                 .withPassword("community-password")

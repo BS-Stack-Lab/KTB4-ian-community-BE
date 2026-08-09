@@ -91,6 +91,11 @@ tasks.register('mediaE2e', Test) {
 	testClassesDirs = sourceSets.mediaE2e.output.classesDirs
 	classpath = sourceSets.mediaE2e.runtimeClasspath
 	useJUnitPlatform()
+	System.properties.findAll { key, ignored ->
+		key.toString().startsWith('mediaE2e.')
+	}.each { key, value ->
+		systemProperty key, value
+	}
 	shouldRunAfter tasks.named('test')
 	outputs.upToDateWhen { false }
 }
