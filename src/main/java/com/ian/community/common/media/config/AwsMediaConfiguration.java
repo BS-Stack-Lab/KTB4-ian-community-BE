@@ -10,11 +10,14 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudfront.CloudFrontClient;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
+
+import java.net.URI;
 
 @Configuration
 @ConditionalOnProperty(name = "app.media.enabled", havingValue = "true")
@@ -46,10 +49,14 @@ public class AwsMediaConfiguration {
 
     @Bean(destroyMethod = "close")
     public S3Client mediaS3Client(MediaProperties properties, AwsCredentialsProvider credentialsProvider) {
-        return S3Client.builder()
+        var builder = S3Client.builder()
                 .region(Region.of(properties.awsRegion()))
                 .credentialsProvider(credentialsProvider)
-                .build();
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(properties.endpoints().s3PathStyle())
+                        .build());
+        endpoint(properties.endpoints().s3()).ifPresent(builder::endpointOverride);
+        return builder.build();
     }
 
     @Bean(destroyMethod = "close")
@@ -57,18 +64,23 @@ public class AwsMediaConfiguration {
             MediaProperties properties,
             AwsCredentialsProvider credentialsProvider
     ) {
-        return S3Presigner.builder()
+        var builder = S3Presigner.builder()
                 .region(Region.of(properties.awsRegion()))
                 .credentialsProvider(credentialsProvider)
-                .build();
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(properties.endpoints().s3PathStyle())
+                        .build());
+        endpoint(properties.endpoints().s3Presign()).ifPresent(builder::endpointOverride);
+        return builder.build();
     }
 
     @Bean(destroyMethod = "close")
     public SqsClient mediaSqsClient(MediaProperties properties, AwsCredentialsProvider credentialsProvider) {
-        return SqsClient.builder()
+        var builder = SqsClient.builder()
                 .region(Region.of(properties.awsRegion()))
-                .credentialsProvider(credentialsProvider)
-                .build();
+                .credentialsProvider(credentialsProvider);
+        endpoint(properties.endpoints().sqs()).ifPresent(builder::endpointOverride);
+        return builder.build();
     }
 
     @Bean(destroyMethod = "close")
@@ -84,9 +96,17 @@ public class AwsMediaConfiguration {
             MediaProperties properties,
             AwsCredentialsProvider credentialsProvider
     ) {
-        return CloudWatchClient.builder()
+        var builder = CloudWatchClient.builder()
                 .region(Region.of(properties.awsRegion()))
-                .credentialsProvider(credentialsProvider)
-                .build();
+                .credentialsProvider(credentialsProvider);
+        endpoint(properties.endpoints().cloudWatch()).ifPresent(builder::endpointOverride);
+        return builder.build();
+    }
+
+    private java.util.Optional<URI> endpoint(String value) {
+        if (value == null || value.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(URI.create(value));
     }
 }

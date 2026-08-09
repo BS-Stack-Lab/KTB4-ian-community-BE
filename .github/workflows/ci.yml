@@ -28,12 +28,38 @@ jobs:
           java-version: "21"
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
       - name: Test and bootJar
+        id: source_test
         run: ./gradlew --no-daemon clean test bootJar
       - name: Workflow and gate policy tests
+        id: policy_test
         run: |
           ./deployment/ec2-compose/scripts/verify-workflows.sh
           ./deployment/ec2-compose/scripts/test-required-gate.sh
           ./deployment/ec2-compose/scripts/test-release-env-compatibility.sh
+      - name: Upload Backend test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: be-source-tests-${{ github.sha }}
+          path: |
+            build/reports/tests/
+            build/test-results/
+            build/libs/community.jar
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Write source summary
+        if: always()
+        env:
+          SOURCE_RESULT: ${{ steps.source_test.outcome }}
+          POLICY_RESULT: ${{ steps.policy_test.outcome }}
+        run: |
+          {
+            echo "## Backend source"
+            echo
+            echo "- Commit SHA: \`${GITHUB_SHA}\`"
+            echo "- Tests and bootJar: ${SOURCE_RESULT}"
+            echo "- Workflow policy: ${POLICY_RESULT}"
+          } >>"${GITHUB_STEP_SUMMARY}"
 
   image-build:
     name: BE / image-build
@@ -43,6 +69,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
       - name: Build linux/amd64 candidate
+        id: candidate
         run: |
           docker buildx build \
             --platform linux/amd64 \
@@ -50,11 +77,88 @@ jobs:
             --tag "community-backend:${GITHUB_SHA}" \
             --build-arg "OCI_REVISION=${GITHUB_SHA}" \
             --build-arg "OCI_VERSION=${GITHUB_SHA}" \
+            --metadata-file "${RUNNER_TEMP}/backend-build-metadata.json" \
             .
+          digest="$(jq -r '."containerimage.digest" // empty' \
+            "${RUNNER_TEMP}/backend-build-metadata.json")"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >>"${GITHUB_OUTPUT}"
       - name: Verify UID 10001 runtime
+        id: image_policy
         env:
           IMAGE_TAG: community-backend:${{ github.sha }}
         run: ./deployment/ec2-compose/scripts/verify-backend-image.sh
+      - name: Write image summary
+        if: always()
+        env:
+          CANDIDATE_DIGEST: ${{ steps.candidate.outputs.digest }}
+          IMAGE_POLICY_RESULT: ${{ steps.image_policy.outcome }}
+        run: |
+          {
+            echo "## Backend candidate image"
+            echo
+            echo "- Commit SHA: \`${GITHUB_SHA}\`"
+            echo "- Candidate digest: \`${CANDIDATE_DIGEST:-unavailable}\`"
+            echo "- Runtime policy: ${IMAGE_POLICY_RESULT}"
+          } >>"${GITHUB_STEP_SUMMARY}"
+
+  media-full-e2e:
+    name: BE / media-full-e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      MYSQL_E2E_IMAGE: mysql:8.4.11@sha256:1d6b6a8fcee8ff758ff151d017f5203cd06792a0e698f0a593c9dfcb14609cf0
+      LOCALSTACK_E2E_IMAGE: localstack/localstack:4.14.0@sha256:3ebc37595918b8accb852f8048fef2aff047d465167edd655528065b07bc364a
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Build actual API and Worker image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --load \
+            --tag community-backend:media-e2e \
+            --build-arg "OCI_REVISION=${GITHUB_SHA}" \
+            --build-arg "OCI_VERSION=${GITHUB_SHA}" \
+            .
+      - name: Run isolated Media Full E2E
+        id: media_e2e
+        run: >-
+          ./gradlew --no-daemon mediaE2e
+          "-DmediaE2e.backendImage=community-backend:media-e2e"
+          "-DmediaE2e.mysqlImage=${MYSQL_E2E_IMAGE}"
+          "-DmediaE2e.localstackImage=${LOCALSTACK_E2E_IMAGE}"
+      - name: Container diagnostics
+        if: failure()
+        run: docker ps --all --no-trunc
+      - name: Upload Media E2E report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: be-media-e2e-${{ github.sha }}
+          path: |
+            build/reports/tests/mediaE2e/
+            build/test-results/mediaE2e/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Write Media E2E summary
+        if: always()
+        env:
+          MEDIA_E2E_RESULT: ${{ steps.media_e2e.outcome }}
+        run: |
+          {
+            echo "## Backend Media Full E2E"
+            echo
+            echo "- Commit SHA: \`${GITHUB_SHA}\`"
+            echo "- MySQL + LocalStack + API + Worker: ${MEDIA_E2E_RESULT}"
+            echo "- Production EC2/DB access: disabled"
+          } >>"${GITHUB_STEP_SUMMARY}"
 
   compose-smoke:
     name: BE / compose-smoke
@@ -197,7 +301,7 @@ jobs:
   required-gate:
     name: BE / required-gate
     if: always()
-    needs: [source-test, image-build, compose-smoke]
+    needs: [source-test, image-build, media-full-e2e, compose-smoke]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -205,4 +309,5 @@ jobs:
           ./deployment/ec2-compose/scripts/required-gate.sh
           '${{ needs.source-test.result }}'
           '${{ needs.image-build.result }}'
+          '${{ needs.media-full-e2e.result }}'
           '${{ needs.compose-smoke.result }}'

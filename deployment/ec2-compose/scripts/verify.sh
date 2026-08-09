@@ -86,10 +86,55 @@ curl --fail --silent --show-error "${base_url}/" | grep -q 'id="root"' && pass "
 curl --fail --silent --show-error "${base_url}/login" | grep -q 'id="root"' && pass "SPA deep link" || fail "SPA deep link"
 curl --fail --silent --show-error --output /dev/null "${base_url}/api/csrf" && pass "API through edge" || fail "API through edge"
 
-asset_headers="$(curl --silent --show-error --dump-header - --output /dev/null "${base_url}/dist/app.js" | tr -d '\r')"
-grep -Eiq '^Cache-Control: .*immutable' <<<"${asset_headers}" && pass "immutable dist cache" || fail "immutable dist cache"
+index_body="$(curl --fail --silent --show-error "${base_url}/")"
+hashed_assets=()
+while IFS= read -r asset; do
+  hashed_assets+=("${asset}")
+done < <(printf '%s' "${index_body}" \
+  | grep -oE '/dist/app\.[0-9a-f]{12}\.(js|css)' \
+  | sort -u || true)
+
+asset_headers=''
+if [[ "${#hashed_assets[@]}" -eq 2 ]]; then
+  for asset in "${hashed_assets[@]}"; do
+    headers="$(curl --fail --silent --show-error --dump-header - \
+      --output /dev/null "${base_url}${asset}" | tr -d '\r')"
+    grep -Eiq '^Cache-Control: .*max-age=31536000.*immutable' <<<"${headers}" \
+      && pass "immutable cache ${asset}" || fail "immutable cache ${asset}"
+    asset_headers+="${headers}"$'\n'
+  done
+  version_json="$(curl --fail --silent --show-error "${base_url}/version.json")"
+  version="$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' \
+    <<<"${version_json}")"
+  expected_frontend_commit="$(env_value "${release_env}" FRONTEND_COMMIT)"
+  image_revision="$(docker inspect --format \
+    '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+    "${ids[frontend]}")"
+  [[ "${version}" == "${expected_frontend_commit}" \
+    && "${image_revision}" == "${expected_frontend_commit}" ]] \
+    && pass "version manifest and OCI revision" \
+    || fail "version manifest/OCI revision mismatch"
+  version_headers="$(curl --silent --show-error --dump-header - --output /dev/null \
+    "${base_url}/version.json" | tr -d '\r')"
+  grep -Eiq '^Cache-Control: .*no-store' <<<"${version_headers}" \
+    && pass "version no-store" || fail "version no-store"
+  for legacy_asset in /dist/app.js /dist/app.css; do
+    status="$(curl --silent --show-error --output /dev/null \
+      --write-out '%{http_code}' "${base_url}${legacy_asset}")"
+    [[ "${status}" == 404 ]] && pass "legacy asset absent ${legacy_asset}" \
+      || fail "legacy asset present ${legacy_asset} (${status})"
+  done
+else
+  # Transitional compatibility for a Backend-first rollout. This branch is
+  # removed naturally once the approved Frontend baseline uses content hashes.
+  asset_headers="$(curl --silent --show-error --dump-header - --output /dev/null \
+    "${base_url}/dist/app.js" | tr -d '\r')"
+  grep -Eiq '^Cache-Control: .*immutable' <<<"${asset_headers}" \
+    && pass "legacy immutable dist cache" || fail "legacy immutable dist cache"
+fi
 index_headers="$(curl --silent --show-error --dump-header - --output /dev/null "${base_url}/" | tr -d '\r')"
-grep -Eiq '^Cache-Control: .*no-(store|cache)' <<<"${index_headers}" && pass "index no-cache" || fail "index no-cache"
+grep -Eiq '^Cache-Control: .*no-(store|cache)' <<<"${index_headers}" \
+  && pass "index no-store/no-cache" || fail "index no-store/no-cache"
 if grep -Eiq '^X-Content-Type-Options: nosniff' <<<"${asset_headers}" &&
   grep -Eiq '^X-Content-Type-Options: nosniff' <<<"${index_headers}"; then
   pass "security headers"
@@ -114,6 +159,38 @@ compose_cmd "${release_env}" exec -T mysql sh -ec '
 ' | grep -Eq '^[1-9][0-9]*$' && pass "Flyway history" || fail "Flyway history"
 
 compose_cmd "${release_env}" exec -T nginx nginx -t >/dev/null && pass "edge nginx configuration" || fail "edge nginx configuration"
+
+if [[ "${CI_MODE:-0}" != "1" && "$(env_value "${release_env}" MEDIA_V2_ENABLED)" == true ]]; then
+  for command_name in aws jq; do require_command "${command_name}"; done
+  worker_role="$(env_value "${release_env}" MEDIA_WORKER_ROLE_ARN)"
+  queue_url="$(env_value "${release_env}" MEDIA_QUEUE_URL)"
+  credentials="$(aws sts assume-role \
+    --role-arn "${worker_role}" \
+    --role-session-name community-media-readonly-smoke \
+    --duration-seconds 900 \
+    --output json)"
+  access_key="$(jq -r '.Credentials.AccessKeyId' <<<"${credentials}")"
+  secret_key="$(jq -r '.Credentials.SecretAccessKey' <<<"${credentials}")"
+  session_token="$(jq -r '.Credentials.SessionToken' <<<"${credentials}")"
+  queue_attributes="$(AWS_ACCESS_KEY_ID="${access_key}" \
+    AWS_SECRET_ACCESS_KEY="${secret_key}" AWS_SESSION_TOKEN="${session_token}" \
+    aws sqs get-queue-attributes --queue-url "${queue_url}" \
+      --attribute-names ApproximateNumberOfMessages \
+        ApproximateNumberOfMessagesNotVisible RedrivePolicy --output json)"
+  dlq_arn="$(jq -r '.Attributes.RedrivePolicy | fromjson | .deadLetterTargetArn' \
+    <<<"${queue_attributes}")"
+  dlq_name="${dlq_arn##*:}"
+  dlq_url="$(AWS_ACCESS_KEY_ID="${access_key}" \
+    AWS_SECRET_ACCESS_KEY="${secret_key}" AWS_SESSION_TOKEN="${session_token}" \
+    aws sqs get-queue-url --queue-name "${dlq_name}" --query QueueUrl --output text)"
+  AWS_ACCESS_KEY_ID="${access_key}" AWS_SECRET_ACCESS_KEY="${secret_key}" \
+    AWS_SESSION_TOKEN="${session_token}" aws sqs get-queue-attributes \
+      --queue-url "${dlq_url}" --attribute-names ApproximateNumberOfMessages \
+      --output json >/dev/null \
+    && pass "Media SQS and DLQ read-only smoke" \
+    || fail "Media SQS and DLQ read-only smoke"
+  unset access_key secret_key session_token credentials
+fi
 
 if [[ "${VERIFY_PERSISTENCE:-0}" == "1" ]]; then
   marker="ci-persistence-$(date +%s)-$$"

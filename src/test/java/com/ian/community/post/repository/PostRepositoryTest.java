@@ -13,6 +13,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @ActiveProfiles("test")
@@ -25,6 +27,9 @@ public class PostRepositoryTest {
 
     @Autowired
     private PostRepository postRepository;
+
+    @Autowired
+    private PostImageRepository postImageRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -51,5 +56,11 @@ public class PostRepositoryTest {
 
         assertThat(Hibernate.isInitialized(post.getAuthorUser())).isTrue();
         assertThat(post.getAuthorUser().getUserId()).isEqualTo(user.getUserId());
+    }
+
+    @Test
+    @DisplayName("미디어 참조 여부 쿼리는 PostImage 식별자 속성을 정상 해석한다")
+    void checksWhetherMediaIsReferencedByPostImage() {
+        assertThat(postImageRepository.existsByMediaAssetMediaId(UUID.randomUUID())).isFalse();
     }
 }

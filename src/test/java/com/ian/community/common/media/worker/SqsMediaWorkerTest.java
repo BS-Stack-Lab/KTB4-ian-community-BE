@@ -59,6 +59,7 @@ class SqsMediaWorkerTest {
                 "bucket",
                 "queue",
                 "role",
+                new MediaProperties.Endpoints("", "", "", "", false),
                 "https://cdn.example",
                 "distribution",
                 "test",

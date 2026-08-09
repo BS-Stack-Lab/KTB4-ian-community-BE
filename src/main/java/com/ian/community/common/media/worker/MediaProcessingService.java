@@ -101,7 +101,11 @@ public class MediaProcessingService {
             }
             throw exception;
         } catch (IOException exception) {
+            transactions.releaseForRetry(mediaId, revisionNumber);
             throw new IllegalStateException("Unable to prepare media scratch directory", exception);
+        } catch (RuntimeException exception) {
+            transactions.releaseForRetry(mediaId, revisionNumber);
+            throw exception;
         } finally {
             deleteRecursively(directory);
         }

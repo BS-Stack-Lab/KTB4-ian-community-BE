@@ -47,3 +47,35 @@ reports only aggregate legacy post/profile candidate counts and performs no
 uploads, pointer changes, or database writes. An operationally approved
 backfill can use that inventory as its preflight; this repository does not
 automatically execute the migration.
+
+## Isolated Media E2E
+
+Pull requests run `mediaE2e` with Testcontainers, MySQL, the immutable
+pre-authentication LocalStack 4.14 image, the real Backend image, and the real
+Worker process. The job never reads production connection settings and does
+not call EC2, SSM, or a production database. Upgrading LocalStack to a release
+that requires authentication must include the reviewed repository secret in
+the same change.
+
+`.github/workflows/media-aws-e2e.yml` uses `cloudformation/media-e2e.yaml` to
+create an ephemeral `e2e-media-{runId}-{attempt}` S3/SQS/DLQ/CloudFront stack.
+Configure these GitHub Environment values on `media-e2e`:
+
+- `MEDIA_E2E_AWS_ROLE_ARN`: an administrator-provisioned GitHub OIDC role
+  restricted to the repository `main` ref and the `media-e2e` Environment.
+- `MEDIA_E2E_AWS_REGION`: the isolated test region, normally
+  `ap-northeast-2`.
+
+The role must allow only `e2e-media-*` CloudFormation, S3, and SQS resources,
+the CloudFront operations required by the ephemeral template, and tagged
+cleanup. Its permissions boundary must explicitly deny EC2 start/stop, SSM,
+RDS, Secrets Manager, production-prefixed resources, and resources tagged
+`environment=production`. Persistent IAM provisioning remains an
+administrator-reviewed account bootstrap operation and is intentionally not
+performed by this repository.
+
+The actual AWS job runs on relevant `main` changes, on manual dispatch, or at
+03:00 KST only when there has been no successful run for seven days. Its
+`always()` cleanup empties the validated E2E bucket and waits for stack
+deletion; `scripts/cleanup-expired-media-e2e.sh` removes TTL-expired remnants
+on the next run. It never starts or connects to the production EC2 instance.

@@ -1,0 +1,168 @@
+name: BE / media-aws-e2e
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/main/java/com/ian/community/common/media/**'
+      - 'src/mediaE2e/**'
+      - 'docker/imagemagick-policy.xml'
+      - 'infra/cloudformation/**'
+      - 'infra/scripts/**'
+      - 'Dockerfile'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * *'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: be-media-aws-e2e
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      run_actual: ${{ steps.decision.outputs.run_actual }}
+    steps:
+      - name: Run on changes and manual dispatch, or after seven quiet days
+        id: decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "${EVENT_NAME}" != schedule ]]; then
+            echo 'run_actual=true' >>"${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          cutoff="$(date -u -d '7 days ago' +%s)"
+          recent="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/media-aws-e2e.yml/runs" \
+            -f status=success -f per_page=20 \
+            --jq '[.workflow_runs[] | select(.event != "schedule" or .conclusion == "success") | .updated_at] | .[0] // ""')"
+          if [[ -z "${recent}" || "$(date -u -d "${recent}" +%s)" -lt "${cutoff}" ]]; then
+            echo 'run_actual=true' >>"${GITHUB_OUTPUT}"
+          else
+            echo 'run_actual=false' >>"${GITHUB_OUTPUT}"
+          fi
+
+  actual-aws:
+    needs: preflight
+    if: needs.preflight.outputs.run_actual == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    environment: media-e2e
+    env:
+      AWS_REGION: ${{ vars.MEDIA_E2E_AWS_REGION || 'ap-northeast-2' }}
+      BACKEND_E2E_IMAGE: community-backend:media-aws-e2e
+      MYSQL_E2E_IMAGE: mysql:8.4.11@sha256:1d6b6a8fcee8ff758ff151d017f5203cd06792a0e698f0a593c9dfcb14609cf0
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Configure isolated AWS credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.MEDIA_E2E_AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: media-e2e-${{ github.run_id }}
+      - name: Remove expired E2E stacks
+        run: ./infra/scripts/cleanup-expired-media-e2e.sh
+      - name: Create ephemeral Media stack
+        id: stack
+        run: |
+          set -Eeuo pipefail
+          stack="e2e-media-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          expires_at="$(date -u -d '3 hours' +%Y-%m-%dT%H:%M:%SZ)"
+          aws cloudformation create-stack \
+            --stack-name "${stack}" \
+            --template-body file://infra/cloudformation/media-e2e.yaml \
+            --parameters \
+              ParameterKey=ResourcePrefix,ParameterValue="${stack}" \
+              ParameterKey=ExpiresAt,ParameterValue="${expires_at}" \
+            --tags \
+              Key=purpose,Value=media-e2e \
+              Key=expires-at,Value="${expires_at}" \
+              Key=github-run-id,Value="${GITHUB_RUN_ID}"
+          echo "stack=${stack}" >>"${GITHUB_OUTPUT}"
+          echo "MEDIA_E2E_STACK=${stack}" >>"${GITHUB_ENV}"
+          aws cloudformation wait stack-create-complete --stack-name "${stack}"
+          output() {
+            aws cloudformation describe-stacks --stack-name "${stack}" \
+              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue | [0]" \
+              --output text
+          }
+          {
+            echo "MEDIA_E2E_BUCKET=$(output MediaBucketName)"
+            echo "MEDIA_E2E_QUEUE_URL=$(output MediaQueueUrl)"
+            echo "MEDIA_E2E_DLQ_URL=$(output MediaDeadLetterQueueUrl)"
+            echo "MEDIA_E2E_CDN_BASE=$(output MediaCdnBaseUrl)"
+          } >>"${GITHUB_ENV}"
+      - name: Build actual API and Worker image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --load \
+            --tag "${BACKEND_E2E_IMAGE}" \
+            --build-arg "OCI_REVISION=${GITHUB_SHA}" \
+            --build-arg "OCI_VERSION=${GITHUB_SHA}" \
+            .
+      - name: Run actual AWS Media E2E from runner containers
+        id: actual_e2e
+        run: >-
+          ./gradlew --no-daemon mediaE2e
+          "-DmediaE2e.aws=true"
+          "-DmediaE2e.backendImage=${BACKEND_E2E_IMAGE}"
+          "-DmediaE2e.mysqlImage=${MYSQL_E2E_IMAGE}"
+          "-DmediaE2e.region=${AWS_REGION}"
+          "-DmediaE2e.bucket=${MEDIA_E2E_BUCKET}"
+          "-DmediaE2e.queueUrl=${MEDIA_E2E_QUEUE_URL}"
+          "-DmediaE2e.dlqUrl=${MEDIA_E2E_DLQ_URL}"
+          "-DmediaE2e.cdnBase=${MEDIA_E2E_CDN_BASE}"
+      - name: Upload actual AWS report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: be-media-aws-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/reports/tests/mediaE2e/
+            build/test-results/mediaE2e/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Cleanup ephemeral Media stack
+        if: always() && env.MEDIA_E2E_STACK != ''
+        run: |
+          set -Eeuo pipefail
+          [[ "${MEDIA_E2E_STACK}" =~ ^e2e-media-[0-9]+-[0-9]+$ ]]
+          if [[ "${MEDIA_E2E_BUCKET:-}" == e2e-media-* ]]; then
+            aws s3 rm "s3://${MEDIA_E2E_BUCKET}" --recursive
+          fi
+          aws cloudformation delete-stack --stack-name "${MEDIA_E2E_STACK}"
+          aws cloudformation wait stack-delete-complete --stack-name "${MEDIA_E2E_STACK}"
+      - name: Write actual AWS summary
+        if: always()
+        env:
+          ACTUAL_RESULT: ${{ steps.actual_e2e.outcome }}
+          STACK_NAME: ${{ steps.stack.outputs.stack }}
+        run: |
+          {
+            echo "## Actual AWS Media E2E"
+            echo
+            echo "- Commit SHA: \`${GITHUB_SHA}\`"
+            echo "- Stack: \`${STACK_NAME:-not-created}\`"
+            echo "- S3 → SQS → Worker → CloudFront: ${ACTUAL_RESULT:-not-run}"
+            echo "- Production EC2/DB/SSM access: not used"
+          } >>"${GITHUB_STEP_SUMMARY}"

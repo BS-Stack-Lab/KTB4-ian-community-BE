@@ -36,6 +36,12 @@ app:
     bucket: ${MEDIA_BUCKET:}
     queue-url: ${MEDIA_QUEUE_URL:}
     role-arn: ${MEDIA_ROLE_ARN:}
+    endpoints:
+      s3: ${MEDIA_S3_ENDPOINT:}
+      s3-presign: ${MEDIA_S3_PRESIGN_ENDPOINT:}
+      sqs: ${MEDIA_SQS_ENDPOINT:}
+      cloud-watch: ${MEDIA_CLOUDWATCH_ENDPOINT:}
+      s3-path-style: ${MEDIA_S3_PATH_STYLE:false}
     cdn-base-url: ${MEDIA_CDN_BASE_URL:}
     distribution-id: ${MEDIA_DISTRIBUTION_ID:}
     environment-name: ${MEDIA_ENVIRONMENT:local}
@@ -43,6 +49,6 @@ app:
     upload-expiration-seconds: 600
     worker:
       scratch-root: ${MEDIA_WORKER_SCRATCH:/var/lib/community/media-worker}
-      wait-time-seconds: 20
-      visibility-timeout-seconds: 300
-      max-receive-count: 5
+      wait-time-seconds: ${MEDIA_WORKER_WAIT_SECONDS:20}
+      visibility-timeout-seconds: ${MEDIA_WORKER_VISIBILITY_SECONDS:300}
+      max-receive-count: ${MEDIA_WORKER_MAX_RECEIVE_COUNT:5}
