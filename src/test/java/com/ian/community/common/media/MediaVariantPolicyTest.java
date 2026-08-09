@@ -9,13 +9,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class MediaVariantPolicyTest {
     @Test
-    void postsGenerateOnlyTheLargestVariant() {
+    void postsGenerateStandardAndHighResolutionVariants() {
         assertEquals(
-                List.of(MediaVariantType.POST_PORTRAIT_3X),
+                List.of(
+                        MediaVariantType.POST_PORTRAIT_1X,
+                        MediaVariantType.POST_PORTRAIT_3X
+                ),
                 MediaVariantPolicy.generatedFor(MediaFrame.POST_PORTRAIT)
         );
         assertEquals(
-                List.of(MediaVariantType.POST_LANDSCAPE_3X),
+                List.of(
+                        MediaVariantType.POST_LANDSCAPE_1X,
+                        MediaVariantType.POST_LANDSCAPE_3X
+                ),
                 MediaVariantPolicy.generatedFor(MediaFrame.POST_LANDSCAPE)
         );
         assertEquals(
@@ -29,7 +35,7 @@ class MediaVariantPolicyTest {
     }
 
     @Test
-    void postResponsesPreferTheLargestVariantAndFallbackForLegacyMedia() {
+    void postResponsesExposeStandardAndHighResolutionWithoutTheRetiredTwoX() {
         MediaAsset asset = postAsset();
         MediaRevision revision = MediaRevision.initial(asset);
         MediaVariant small = variant(
@@ -43,17 +49,24 @@ class MediaVariantPolicyTest {
         );
 
         assertEquals(
-                List.of(large),
+                List.of(small, large),
                 MediaVariantPolicy.responseVariants(
                         MediaFrame.POST_LANDSCAPE,
                         List.of(small, medium, large)
                 )
         );
         assertEquals(
-                List.of(medium),
+                List.of(small),
                 MediaVariantPolicy.responseVariants(
                         MediaFrame.POST_LANDSCAPE,
                         List.of(small, medium)
+                )
+        );
+        assertEquals(
+                List.of(medium),
+                MediaVariantPolicy.responseVariants(
+                        MediaFrame.POST_LANDSCAPE,
+                        List.of(medium)
                 )
         );
     }
