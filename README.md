@@ -6,10 +6,13 @@
 [![CI](https://github.com/BS-Stack-Lab/KTB4-ian-community-BE/actions/workflows/ci.yml/badge.svg)](https://github.com/BS-Stack-Lab/KTB4-ian-community-BE/actions/workflows/ci.yml)
 
 [Frontend Repository](https://github.com/BS-Stack-Lab/KTB4-ian-community-FE)
-· Service Demo
+· [Backend 서비스 영상](#backend-서비스-영상)
 · API Documentation
 
 ## 프로젝트 소개
+
+PULSE는 기획, UI 디자인, Frontend, Backend, 인프라와 배포까지 혼자
+설계하고 구현한 개인 프로젝트입니다.
 
 PULSE Backend는 회원과 인증, 게시글과 댓글, 좋아요와 북마크, 이미지 처리
 기능을 제공하는 Spring Boot 기반 커뮤니티 API입니다.
@@ -21,10 +24,36 @@ PULSE Backend는 회원과 인증, 게시글과 댓글, 좋아요와 북마크, 
 
 | 항목 | 내용 |
 | --- | --- |
-| 개발 기간 | YYYY.MM.DD ~ YYYY.MM.DD |
-| 개발 인원 | Frontend N명, Backend N명 |
-| 담당 범위 | API, 인증, 데이터 모델, 테스트, 인프라, 배포 |
+| 개발 형태 | 개인 프로젝트 |
+| 개발 인원 | 1명 |
+| 전체 담당 | 기획, UI 디자인, Frontend, Backend, 인프라, 배포 |
+| Backend 담당 | API, 인증, 데이터 모델, 테스트, 인프라, 운영 자동화 |
 | 운영 환경 | Docker, MySQL, AWS, Nginx |
+
+## Backend 서비스 영상
+
+> API 요청부터 데이터 저장과 비동기 이미지 처리까지 Backend의 동작을
+> 중심으로 설명하는 영상입니다.
+
+<!--
+GitHub에 MP4 영상을 업로드한 뒤 생성된 attachment URL을 아래에 한 줄로
+붙여 넣으세요. 예: https://github.com/user-attachments/assets/...
+-->
+
+서비스 영상은 준비 중입니다.
+
+### 시연 내용
+
+1. 회원가입과 로그인 요청
+2. JWT Cookie와 CSRF 검증
+3. Access Token 만료와 Refresh Token 회전
+4. 게시글과 댓글의 권한 검증
+5. 좋아요와 북마크 데이터 처리
+6. 데이터베이스 관계와 마이그레이션
+7. 이미지 업로드 권한 발급
+8. Queue를 이용한 비동기 이미지 변환
+9. Media Revision과 Variant 상태 변경
+10. 애플리케이션 상태 확인과 운영 구성
 
 ## Backend 책임
 
@@ -351,9 +380,19 @@ export APP_FRONTEND_ORIGIN="http://127.0.0.1:4173"
 
 - [PULSE Frontend](https://github.com/BS-Stack-Lab/KTB4-ian-community-FE)
 
-## 팀
+## Developer
 
-| 이름 | 역할 | 주요 담당 |
-| --- | --- | --- |
-| 이름 | Frontend | UI, 상태 관리, API 연동, 테스트 |
-| 이름 | Backend | API, 인증, 데이터, 인프라 |
+기획부터 디자인, Frontend, Backend와 배포까지 전 과정을 혼자 진행했습니다.
+
+Backend에서는 인증과 보안, 도메인 모델, 데이터베이스, 비동기 미디어 처리,
+테스트와 운영 자동화를 중점적으로 설계했습니다.
+
+| 영역 | 담당 내용 |
+| --- | --- |
+| Product | 요구사항 정의와 서비스 흐름 설계 |
+| API | 회원, 게시글, 댓글, 좋아요와 북마크 |
+| Security | JWT Cookie, CSRF와 Refresh Token Rotation |
+| Data | JPA 모델링, MySQL과 Flyway 마이그레이션 |
+| Media | S3, SQS, Worker와 CloudFront 파이프라인 |
+| Quality | 단위·통합·동시성·미디어 E2E 테스트 |
+| Operations | Docker, AWS, CI/CD, 백업과 Rollback |
