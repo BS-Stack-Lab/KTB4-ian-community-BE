@@ -119,10 +119,12 @@ public class MediaRevisionService {
     }
 
     public MediaRevisionResponse toResponse(MediaRevision revision) {
-        List<MediaVariantResponse> variants = mediaVariantRepository
+        List<MediaVariant> storedVariants = mediaVariantRepository
                 .findAllByMediaAssetMediaIdAndMediaRevisionOrderByWidthAsc(
                         revision.getMediaAsset().getMediaId(), revision.getRevision()
-                )
+                );
+        List<MediaVariantResponse> variants = MediaVariantPolicy
+                .responseVariants(revision.getFrame(), storedVariants)
                 .stream()
                 .map(variant -> new MediaVariantResponse(
                         variant.getVariantType(),

@@ -173,10 +173,12 @@ public class MediaService {
     }
 
     public MediaResponse toResponse(MediaAsset asset) {
-        List<MediaVariantResponse> variants = mediaVariantRepository
+        List<MediaVariant> storedVariants = mediaVariantRepository
                 .findAllByMediaAssetMediaIdAndMediaRevisionOrderByWidthAsc(
                         asset.getMediaId(), asset.getMediaRevision()
-                )
+                );
+        List<MediaVariantResponse> variants = MediaVariantPolicy
+                .responseVariants(asset.getFrame(), storedVariants)
                 .stream()
                 .map(variant -> new MediaVariantResponse(
                         variant.getVariantType(),
@@ -203,15 +205,11 @@ public class MediaService {
                 .findAllByMediaAssetMediaIdAndMediaRevisionOrderByWidthAsc(
                         asset.getMediaId(), asset.getMediaRevision()
                 );
-        MediaVariantType preferred = asset.getPurpose() == MediaPurpose.PROFILE
-                ? MediaVariantType.PROFILE_MEDIUM
-                : asset.getFrame() == MediaFrame.POST_PORTRAIT
-                ? MediaVariantType.POST_PORTRAIT_1X
-                : MediaVariantType.POST_LANDSCAPE_1X;
+        MediaVariantType preferred = MediaVariantPolicy.preferredFor(asset.getFrame());
         return variants.stream()
                 .filter(variant -> variant.getVariantType() == preferred)
                 .findFirst()
-                .or(() -> variants.stream().findFirst())
+                .or(() -> variants.stream().max(Comparator.comparingInt(MediaVariant::getWidth)))
                 .map(variant -> publicUrl(variant.getObjectKey()))
                 .orElseThrow(() -> new CustomException(ErrorCode.MEDIA_NOT_READY));
     }

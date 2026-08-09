@@ -2,6 +2,7 @@ package com.ian.community.common.media.worker;
 
 import com.ian.community.common.exception.ErrorCode;
 import com.ian.community.common.media.MediaAsset;
+import com.ian.community.common.media.MediaFrame;
 import com.ian.community.common.media.MediaProperties;
 import com.ian.community.common.media.MediaRevision;
 import com.ian.community.common.media.storage.MediaObjectStorage;
@@ -67,6 +68,7 @@ class MediaProcessingServiceRetryTest {
         when(asset.getMediaId()).thenReturn(mediaId);
         when(asset.getSourceKey()).thenReturn("private/uploads/" + mediaId + "/source");
         when(asset.getMasterKey()).thenReturn(null);
+        when(revision.getFrame()).thenReturn(MediaFrame.POST_LANDSCAPE);
         when(revision.getTransformVersion()).thenReturn(1);
         when(transactions.claim(mediaId, 1))
                 .thenReturn(new MediaProcessingTransactions.ProcessingClaim(asset, revision));

@@ -131,7 +131,7 @@ public class MediaProcessingService {
         if (revision.getRevision() == 1 && asset.getMasterKey() == null) {
             safeDelete("private/media/" + asset.getMediaId() + "/master" + suffix);
         }
-        for (var type : com.ian.community.common.media.MediaVariantType.forFrame(revision.getFrame())) {
+        for (var type : com.ian.community.common.media.MediaVariantPolicy.generatedFor(revision.getFrame())) {
             safeDelete("public/media/" + asset.getMediaId() + "/" + type.getKeyName() + suffix);
         }
         try {

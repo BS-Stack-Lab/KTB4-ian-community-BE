@@ -4,6 +4,7 @@ import com.ian.community.common.exception.ErrorCode;
 import com.ian.community.common.media.MediaAsset;
 import com.ian.community.common.media.MediaFrame;
 import com.ian.community.common.media.MediaRevision;
+import com.ian.community.common.media.MediaVariantPolicy;
 import com.ian.community.common.media.MediaVariantType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -44,23 +45,10 @@ public class ImageTransformEngine {
         CropPixels crop = cropPixels(asset, editedInfo.width(), editedInfo.height());
         ensureMinimum(asset.getFrame(), crop.width(), crop.height());
 
-        Path cropped = directory.resolve("crop.webp");
-        run(List.of(
-                "convert", edited.toString(),
-                "-crop", crop.width() + "x" + crop.height() + "+" + crop.x() + "+" + crop.y(),
-                "+repage", "-strip", "-colorspace", "sRGB",
-                "-quality", "95", cropped.toString()
-        ));
-
         List<TransformedVariant> outputs = new ArrayList<>();
         for (MediaVariantType type : eligibleVariants(asset.getFrame(), crop.width(), crop.height())) {
             Path output = directory.resolve(type.getKeyName() + ".webp");
-            run(List.of(
-                    "convert", cropped.toString(),
-                    "-resize", type.getWidth() + "x" + type.getHeight() + "!",
-                    "-strip", "-colorspace", "sRGB",
-                    "-quality", "82", output.toString()
-            ));
+            run(variantCommand(edited, output, crop, type));
             try {
                 outputs.add(new TransformedVariant(type, output, Files.size(output)));
             } catch (IOException exception) {
@@ -89,25 +77,12 @@ public class ImageTransformEngine {
         CropPixels crop = cropPixels(revision, editedInfo.width(), editedInfo.height());
         ensureMinimum(revision.getFrame(), crop.width(), crop.height());
 
-        Path cropped = directory.resolve("crop.webp");
-        run(List.of(
-                "convert", edited.toString(),
-                "-crop", crop.width() + "x" + crop.height() + "+" + crop.x() + "+" + crop.y(),
-                "+repage", "-strip", "-colorspace", "sRGB",
-                "-quality", "95", cropped.toString()
-        ));
-
         List<TransformedVariant> outputs = new ArrayList<>();
         for (MediaVariantType type : eligibleVariants(
                 revision.getFrame(), crop.width(), crop.height()
         )) {
             Path output = directory.resolve(type.getKeyName() + ".webp");
-            run(List.of(
-                    "convert", cropped.toString(),
-                    "-resize", type.getWidth() + "x" + type.getHeight() + "!",
-                    "-strip", "-colorspace", "sRGB",
-                    "-quality", "82", output.toString()
-            ));
+            run(variantCommand(edited, output, crop, type));
             try {
                 outputs.add(new TransformedVariant(type, output, Files.size(output)));
             } catch (IOException exception) {
@@ -233,9 +208,25 @@ public class ImageTransformEngine {
     }
 
     List<MediaVariantType> eligibleVariants(MediaFrame frame, int width, int height) {
-        return MediaVariantType.forFrame(frame).stream()
+        return MediaVariantPolicy.generatedFor(frame).stream()
                 .filter(type -> width >= type.getWidth() && height >= type.getHeight())
                 .toList();
+    }
+
+    List<String> variantCommand(
+            Path source,
+            Path output,
+            CropPixels crop,
+            MediaVariantType type
+    ) {
+        return List.of(
+                "convert", source.toString(),
+                "-crop", crop.width() + "x" + crop.height() + "+" + crop.x() + "+" + crop.y(),
+                "+repage",
+                "-resize", type.getWidth() + "x" + type.getHeight() + "!",
+                "-strip", "-colorspace", "sRGB",
+                "-quality", "82", output.toString()
+        );
     }
 
     List<String> masterCommand(Path source, Path master) {
@@ -263,7 +254,7 @@ public class ImageTransformEngine {
     }
 
     private void ensureMinimum(MediaFrame frame, int width, int height) {
-        MediaVariantType minimum = MediaVariantType.forFrame(frame).getFirst();
+        MediaVariantType minimum = MediaVariantPolicy.generatedFor(frame).getFirst();
         if (width < minimum.getWidth() || height < minimum.getHeight()) {
             throw new PermanentMediaProcessingException(ErrorCode.IMAGE_TOO_SMALL);
         }
