@@ -59,11 +59,40 @@ dependencies {
 	}
 
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testImplementation platform('org.testcontainers:testcontainers-bom:2.0.5')
+	testImplementation 'org.testcontainers:testcontainers'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers-mysql'
+	testImplementation 'org.testcontainers:testcontainers-localstack'
+}
+
+sourceSets {
+	mediaE2e {
+		java.srcDir 'src/mediaE2e/java'
+		resources.srcDir 'src/mediaE2e/resources'
+		compileClasspath += sourceSets.main.output
+		runtimeClasspath += sourceSets.main.output
+	}
+}
+
+configurations {
+	mediaE2eImplementation.extendsFrom testImplementation
+	mediaE2eRuntimeOnly.extendsFrom testRuntimeOnly
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
 	systemProperty 'spring.profiles.active', 'test'
+}
+
+tasks.register('mediaE2e', Test) {
+	description = 'Runs isolated Media V2 tests with MySQL, LocalStack, API, and worker containers.'
+	group = 'verification'
+	testClassesDirs = sourceSets.mediaE2e.output.classesDirs
+	classpath = sourceSets.mediaE2e.runtimeClasspath
+	useJUnitPlatform()
+	shouldRunAfter tasks.named('test')
+	outputs.upToDateWhen { false }
 }
 
 tasks.named('bootJar') {

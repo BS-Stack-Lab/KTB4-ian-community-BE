@@ -49,6 +49,7 @@ jobs:
       frontend_image: ${{ steps.resolve.outputs.frontend_image }}
       backend_commit: ${{ steps.resolve.outputs.backend_commit }}
       backend_image: ${{ steps.resolve.outputs.backend_image }}
+      media_changed: ${{ steps.resolve.outputs.media_changed }}
     steps:
       - name: Checkout current trusted Backend main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -84,6 +85,7 @@ jobs:
             frontend_image=''
             backend_sha=''
             backend_image=''
+            media_changed=false
           else
             [[ "${OPERATION}" == deploy ]]
             [[ "${FRONTEND_SHA}" =~ ^[0-9a-f]{40}$ ]]
@@ -128,14 +130,27 @@ jobs:
               fi
 
               manifest="$(docker buildx imagetools inspect "${candidate}" --format '{{json .Manifest}}')"
-              digest="$(jq -r '.digest // empty' <<<"${manifest}")"
+              if [[ "${source_repository}" == BS-Stack-Lab/KTB4-ian-community-FE ]]; then
+                digest="$(jq -r '
+                  if (.manifests | type) == "array" then
+                    [.manifests[] | select(
+                      .platform.os == "linux"
+                      and .platform.architecture == "amd64"
+                    )] | if length == 1 then .[0].digest else empty end
+                  else
+                    .digest // empty
+                  end
+                ' <<<"${manifest}")"
+              else
+                digest="$(jq -r '.digest // empty' <<<"${manifest}")"
+                jq -e '
+                  any(
+                    .manifests[]?;
+                    .platform.os == "linux" and .platform.architecture == "amd64"
+                  )
+                ' <<<"${manifest}" >/dev/null
+              fi
               [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
-              jq -e '
-                any(
-                  .manifests[]?;
-                  .platform.os == "linux" and .platform.architecture == "amd64"
-                )
-              ' <<<"${manifest}" >/dev/null
 
               resolved="${image_repository}@${digest}"
               labels="$(docker buildx imagetools inspect "${resolved}" --format '{{json .Image.Config.Labels}}')"
@@ -155,6 +170,31 @@ jobs:
             }
             require_successful_ci BS-Stack-Lab/KTB4-ian-community-FE "${FRONTEND_SHA}"
             require_successful_ci BS-Stack-Lab/KTB4-ian-community-BE "${BACKEND_SHA}"
+            media_changed=false
+            if ! git diff --quiet "${BACKEND_SHA}^" "${BACKEND_SHA}" -- \
+              src/main/java/com/ian/community/common/media \
+              src/mediaE2E infra docker/imagemagick-policy.xml; then
+              media_changed=true
+            fi
+            frontend_media_changed="$(gh api \
+              "repos/BS-Stack-Lab/KTB4-ian-community-FE/commits/${FRONTEND_SHA}" \
+              --jq '[.files[].filename] | any(.[]; startswith("src/entities/media/") or startswith("src/features/post/") or startswith("src/shared/update/"))')"
+            [[ "${frontend_media_changed}" == true ]] && media_changed=true
+            if [[ "${media_changed}" == true ]]; then
+              gh api --method GET \
+                "repos/BS-Stack-Lab/KTB4-ian-community-BE/actions/workflows/media-aws-e2e.yml/runs" \
+                -f branch=main -f head_sha="${BACKEND_SHA}" \
+                -f status=success -f per_page=100 \
+                | jq -e --arg source_sha "${BACKEND_SHA}" '
+                    .workflow_runs
+                    | any(
+                        .head_sha == $source_sha
+                        and .head_branch == "main"
+                        and .status == "completed"
+                        and .conclusion == "success"
+                      )
+                  ' >/dev/null
+            fi
             frontend_sha="${FRONTEND_SHA}"
             backend_sha="${BACKEND_SHA}"
             frontend_image="$(resolve_verified_image \
@@ -174,6 +214,7 @@ jobs:
             echo "frontend_image=${frontend_image}"
             echo "backend_commit=${backend_sha}"
             echo "backend_image=${backend_image}"
+            echo "media_changed=${media_changed}"
           } >>"${GITHUB_OUTPUT}"
 
   production:
@@ -240,6 +281,8 @@ jobs:
           [[ "${status}" == Success ]]
       - name: Verify external production health
         env:
+          OPERATION: ${{ needs.prepare.outputs.operation }}
+          FRONTEND_COMMIT: ${{ needs.prepare.outputs.frontend_commit }}
           PRODUCTION_ORIGIN: ${{ vars.PRODUCTION_ORIGIN }}
         run: |
           set -Eeuo pipefail
@@ -254,3 +297,24 @@ jobs:
           [[ "${healthy}" == 1 ]]
           curl --fail --silent --show-error --max-time 15 --output /dev/null "${PRODUCTION_ORIGIN}/"
           curl --fail --silent --show-error --max-time 15 --output /dev/null "${PRODUCTION_ORIGIN}/api/csrf"
+          if [[ "${OPERATION}" == deploy ]]; then
+            index="$(curl --fail --silent --show-error --max-time 15 \
+              "${PRODUCTION_ORIGIN}/index.html")"
+            mapfile -t assets < <(printf '%s' "${index}" \
+              | grep -oE '/dist/app\.[0-9a-f]{12}\.(js|css)' | sort -u)
+            [[ "${#assets[@]}" -eq 2 ]]
+            for asset in "${assets[@]}"; do
+              headers="$(curl --fail --silent --show-error --max-time 15 \
+                --dump-header - --output /dev/null "${PRODUCTION_ORIGIN}${asset}" \
+                | tr -d '\r')"
+              grep -Eiq '^Cache-Control: .*max-age=31536000.*immutable' <<<"${headers}"
+            done
+            version_headers="$(curl --fail --silent --show-error --max-time 15 \
+              --dump-header - --output /dev/null "${PRODUCTION_ORIGIN}/version.json" \
+              | tr -d '\r')"
+            grep -Eiq '^Cache-Control: .*no-store' <<<"${version_headers}"
+            version="$(curl --fail --silent --show-error --max-time 15 \
+              "${PRODUCTION_ORIGIN}/version.json" \
+              | jq -r 'select(.schemaVersion == 1) | .version')"
+            [[ "${version}" == "${FRONTEND_COMMIT}" ]]
+          fi

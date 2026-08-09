@@ -14,9 +14,11 @@ import tools.jackson.databind.json.JsonMapper;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 @Component
@@ -41,8 +43,9 @@ public class S3PresignedPostFactory {
 
     public PresignedPostResponse create(String key, String contentType, long maximumSize, Duration duration) {
         AwsCredentials credentials = credentialsProvider.resolveCredentials();
-        Instant expiresAt = Instant.now().plus(duration);
-        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        Instant issuedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        Instant expiresAt = issuedAt.plus(duration);
+        ZonedDateTime now = issuedAt.atZone(ZoneOffset.UTC);
         String date = DATE.format(now);
         String timestamp = TIMESTAMP.format(now);
         String scope = date + "/" + properties.awsRegion() + "/s3/aws4_request";
@@ -82,12 +85,28 @@ public class S3PresignedPostFactory {
             if (credentials instanceof AwsSessionCredentials session) {
                 fields.put("x-amz-security-token", session.sessionToken());
             }
-            String url = "https://" + properties.bucket() + ".s3."
-                    + properties.awsRegion() + ".amazonaws.com";
+            String url = uploadUrl();
             return new PresignedPostResponse(url, Map.copyOf(fields), expiresAt);
         } catch (JacksonException exception) {
             throw new CustomException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
+    }
+
+    private String uploadUrl() {
+        String endpoint = properties.endpoints().s3Presign();
+        if (endpoint == null || endpoint.isBlank()) {
+            return "https://" + properties.bucket() + ".s3."
+                    + properties.awsRegion() + ".amazonaws.com";
+        }
+        String base = endpoint.endsWith("/")
+                ? endpoint.substring(0, endpoint.length() - 1)
+                : endpoint;
+        if (properties.endpoints().s3PathStyle()) {
+            return base + "/" + properties.bucket();
+        }
+        URI uri = URI.create(base);
+        String authority = properties.bucket() + "." + uri.getRawAuthority();
+        return URI.create(uri.getScheme() + "://" + authority + uri.getRawPath()).toString();
     }
 
     private byte[] signatureKey(String secret, String date, String region) {

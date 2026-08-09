@@ -74,3 +74,15 @@ jobs:
           subject-name: ghcr.io/bs-stack-lab/ktb4-ian-community-be
           subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
+      - name: Write published image summary
+        if: always()
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          PUBLISHED_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          {
+            echo "## Published Backend image"
+            echo
+            echo "- Commit SHA: \`${SOURCE_SHA}\`"
+            echo "- GHCR digest: \`${PUBLISHED_DIGEST:-unavailable}\`"
+          } >>"${GITHUB_STEP_SUMMARY}"

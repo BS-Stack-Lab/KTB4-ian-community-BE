@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Ephemeral Media V2 S3, SQS, DLQ, and CloudFront resources for GitHub-hosted E2E
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    AllowedPattern: 'e2e-media-[a-z0-9-]+'
+  ExpiresAt:
+    Type: String
+    Description: UTC timestamp consumed by the E2E janitor
+
+Resources:
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ResourcePrefix}-dlq'
+      MessageRetentionPeriod: 86400
+      VisibilityTimeout: 2
+      SqsManagedSseEnabled: true
+      Tags:
+        - {Key: purpose, Value: media-e2e}
+        - {Key: expires-at, Value: !Ref ExpiresAt}
+
+  MediaQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Ref ResourcePrefix
+      ReceiveMessageWaitTimeSeconds: 1
+      VisibilityTimeout: 2
+      MessageRetentionPeriod: 3600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 3
+      Tags:
+        - {Key: purpose, Value: media-e2e}
+        - {Key: expires-at, Value: !Ref ExpiresAt}
+
+  QueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref MediaQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: s3.amazonaws.com}
+            Action: sqs:SendMessage
+            Resource: !GetAtt MediaQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:s3:::${ResourcePrefix}-${AWS::AccountId}-${AWS::Region}'
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: QueuePolicy
+    Properties:
+      BucketName: !Sub '${ResourcePrefix}-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, HEAD, POST]
+            AllowedOrigins: ['http://127.0.0.1']
+            ExposedHeaders: [ETag]
+            MaxAge: 60
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireEphemeralUploads
+            Status: Enabled
+            Prefix: private/uploads/
+            ExpirationInDays: 1
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt MediaQueue.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - {Name: prefix, Value: private/uploads/}
+                  - {Name: suffix, Value: /source}
+      Tags:
+        - {Key: purpose, Value: media-e2e}
+        - {Key: expires-at, Value: !Ref ExpiresAt}
+
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${ResourcePrefix}-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${ResourcePrefix}-immutable'
+        DefaultTTL: 31536000
+        MaxTTL: 31536000
+        MinTTL: 31536000
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          CookiesConfig: {CookieBehavior: none}
+          HeadersConfig: {HeaderBehavior: none}
+          QueryStringsConfig: {QueryStringBehavior: none}
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub '${ResourcePrefix} Media E2E'
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: media-e2e-origin
+            DomainName: !GetAtt MediaBucket.RegionalDomainName
+            OriginPath: /public
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            S3OriginConfig: {OriginAccessIdentity: ''}
+        DefaultCacheBehavior:
+          TargetOriginId: media-e2e-origin
+          ViewerProtocolPolicy: https-only
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: !Ref CachePolicy
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+      Tags:
+        - {Key: purpose, Value: media-e2e}
+        - {Key: expires-at, Value: !Ref ExpiresAt}
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt MediaBucket.Arn
+              - !Sub '${MediaBucket.Arn}/*'
+            Condition:
+              Bool: {aws:SecureTransport: false}
+          - Sid: AllowCloudFrontVariantsOnly
+            Effect: Allow
+            Principal: {Service: cloudfront.amazonaws.com}
+            Action: s3:GetObject
+            Resource: !Sub '${MediaBucket.Arn}/public/media/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+
+Outputs:
+  MediaBucketName: {Value: !Ref MediaBucket}
+  MediaQueueUrl: {Value: !Ref MediaQueue}
+  MediaDeadLetterQueueUrl: {Value: !Ref DeadLetterQueue}
+  MediaDistributionId: {Value: !Ref Distribution}
+  MediaCdnBaseUrl: {Value: !Sub 'https://${Distribution.DomainName}'}

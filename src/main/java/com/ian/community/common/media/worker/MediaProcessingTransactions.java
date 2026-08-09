@@ -98,6 +98,16 @@ public class MediaProcessingTransactions {
         }
     }
 
+    @Transactional
+    public void releaseForRetry(UUID mediaId, int revisionNumber) {
+        mediaRevisionRepository.findForUpdate(mediaId, revisionNumber)
+                .ifPresent(MediaRevision::releaseForRetry);
+        if (revisionNumber == 1) {
+            mediaAssetRepository.findByIdForUpdate(mediaId)
+                    .ifPresent(MediaAsset::releaseForRetry);
+        }
+    }
+
     public record ProcessingClaim(MediaAsset asset, MediaRevision revision) {}
 
     public record StoredVariant(MediaVariantType type, String objectKey, long fileSize) {}

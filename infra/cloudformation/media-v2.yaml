@@ -307,6 +307,11 @@ Resources:
                 Resource: !GetAtt MediaQueue.Arn
               - Effect: Allow
                 Action:
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt MediaDeadLetterQueue.Arn
+              - Effect: Allow
+                Action:
                   - s3:GetObject
                   - s3:DeleteObject
                 Resource: !Sub '${MediaBucket.Arn}/private/uploads/*'

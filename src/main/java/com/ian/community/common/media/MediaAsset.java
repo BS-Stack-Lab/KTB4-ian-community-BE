@@ -204,6 +204,14 @@ public class MediaAsset {
         touch();
     }
 
+    public void releaseForRetry() {
+        if (status == MediaStatus.PROCESSING) {
+            status = MediaStatus.UPLOADED;
+            leaseUntil = null;
+            touch();
+        }
+    }
+
     public void requestDelete() {
         if (status != MediaStatus.DELETED) {
             status = MediaStatus.PENDING_DELETE;

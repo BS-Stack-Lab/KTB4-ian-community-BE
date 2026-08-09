@@ -9,6 +9,7 @@ public record MediaProperties(
         String bucket,
         String queueUrl,
         String roleArn,
+        Endpoints endpoints,
         String cdnBaseUrl,
         String distributionId,
         String environmentName,
@@ -16,6 +17,14 @@ public record MediaProperties(
         long uploadExpirationSeconds,
         Worker worker
 ) {
+    public record Endpoints(
+            String s3,
+            String s3Presign,
+            String sqs,
+            String cloudWatch,
+            boolean s3PathStyle
+    ) {}
+
     public record Worker(
             String scratchRoot,
             int waitTimeSeconds,

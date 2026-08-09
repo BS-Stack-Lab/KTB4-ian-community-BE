@@ -185,6 +185,14 @@ public class MediaRevision {
         touch();
     }
 
+    public void releaseForRetry() {
+        if (status == MediaStatus.PROCESSING) {
+            status = MediaStatus.UPLOADED;
+            leaseUntil = null;
+            touch();
+        }
+    }
+
     public void requestDelete() {
         if (activatedAt != null) {
             throw new IllegalStateException("Active revision cannot be deleted");

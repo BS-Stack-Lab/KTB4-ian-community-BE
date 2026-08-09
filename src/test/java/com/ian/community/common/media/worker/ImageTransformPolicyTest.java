@@ -103,6 +103,24 @@ class ImageTransformPolicyTest {
         assertFalse(asset.claim(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5)));
     }
 
+    @Test
+    void transientFailureReleasesAssetAndRevisionLeasesForImmediateRetry() {
+        MediaAsset asset = asset(MediaFrame.POST_LANDSCAPE, "0", "0", "1", "1");
+        MediaRevision revision = MediaRevision.initial(asset);
+        asset.markUploaded();
+        revision.markUploaded();
+
+        assertTrue(asset.claim(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5)));
+        assertTrue(revision.claim(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5)));
+        asset.releaseForRetry();
+        revision.releaseForRetry();
+
+        assertEquals(MediaStatus.UPLOADED, asset.getStatus());
+        assertEquals(MediaStatus.UPLOADED, revision.getStatus());
+        assertTrue(asset.claim(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5)));
+        assertTrue(revision.claim(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5)));
+    }
+
     private MediaAsset asset(
             MediaFrame frame,
             String x,
