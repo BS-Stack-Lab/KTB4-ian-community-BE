@@ -37,7 +37,22 @@ class ImageTransformPolicyTest {
                 Path.of("master.webp")
         );
         assertTrue(command.contains("-auto-orient"));
-        assertTrue(command.indexOf("-auto-orient") < command.indexOf("-strip"));
+        assertFalse(command.contains("-resize"));
+        assertFalse(command.contains("-quality"));
+    }
+
+    @Test
+    void exifAndUserRotationAreAppliedToTheCoordinateDimensions() {
+        var rotatedByExif = engine.orientedDimensions(
+                new ImageTransformEngine.ImageInfo("JPEG", 1200, 800, 1, "RightTop"),
+                0
+        );
+        assertEquals(800, rotatedByExif.width());
+        assertEquals(1200, rotatedByExif.height());
+
+        var rotatedAgainByUser = engine.orientedDimensions(rotatedByExif, 90);
+        assertEquals(1200, rotatedAgainByUser.width());
+        assertEquals(800, rotatedAgainByUser.height());
     }
 
     @Test
@@ -51,7 +66,7 @@ class ImageTransformPolicyTest {
     }
 
     @Test
-    void variantsNeverUpscaleBeyondTheEligibleSourceCrop() {
+    void postVariantsAlwaysGenerate1xAndOnlyGenerate3xWhenEligible() {
         assertEquals(
                 List.of(
                         MediaVariantType.POST_LANDSCAPE_1X,
@@ -64,8 +79,12 @@ class ImageTransformPolicyTest {
                 engine.eligibleVariants(MediaFrame.POST_LANDSCAPE, 900, 600)
         );
         assertEquals(
-                List.of(),
-                engine.eligibleVariants(MediaFrame.POST_LANDSCAPE, 447, 287)
+                List.of(MediaVariantType.POST_LANDSCAPE_1X),
+                engine.eligibleVariants(MediaFrame.POST_LANDSCAPE, 320, 200)
+        );
+        assertEquals(
+                List.of(MediaVariantType.POST_LANDSCAPE_1X, MediaVariantType.POST_LANDSCAPE_3X),
+                engine.eligibleVariants(MediaFrame.POST_LANDSCAPE, 1600, 1000)
         );
         assertEquals(
                 List.of(MediaVariantType.PROFILE_SMALL, MediaVariantType.PROFILE_MEDIUM),
@@ -97,12 +116,25 @@ class ImageTransformPolicyTest {
         byte[] jpeg = {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0x00};
         byte[] png = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};
         byte[] webp = {0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50};
+        byte[] bmp = {0x42, 0x4d, 0, 0};
 
         assertTrue(engine.matchesMagic(jpeg, "image/jpeg"));
         assertTrue(engine.matchesMagic(png, "image/png"));
         assertTrue(engine.matchesMagic(webp, "image/webp"));
+        assertTrue(engine.matchesMagic(bmp, "image/bmp"));
         assertFalse(engine.matchesMagic(jpeg, "image/png"));
         assertFalse(engine.matchesMagic(webp, "image/gif"));
+    }
+
+    @Test
+    void supportedFormatsArePreservedAndBmpFallsBackToJpeg() {
+        assertEquals(MediaOutputFormat.JPEG, MediaOutputFormat.fromSourceFormat("JPEG"));
+        assertEquals(MediaOutputFormat.PNG, MediaOutputFormat.fromSourceFormat("PNG"));
+        assertEquals(MediaOutputFormat.WEBP, MediaOutputFormat.fromSourceFormat("WEBP"));
+        assertEquals(MediaOutputFormat.JPEG, MediaOutputFormat.fromSourceFormat("BMP"));
+        assertTrue(MediaOutputFormat.JPEG.encoderArguments().contains("4:4:4"));
+        assertTrue(MediaOutputFormat.PNG.encoderArguments().contains("png:compression-level=6"));
+        assertTrue(MediaOutputFormat.WEBP.encoderArguments().contains("webp:alpha-quality=100"));
     }
 
     @Test

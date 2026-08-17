@@ -74,6 +74,7 @@ public class UserPostControllerV2 {
                 post,
                 AuthorV2Response.from(post.getAuthorUser(), profile),
                 postService.getPostMedia(post),
+                postService.getPostMediaAttachments(post),
                 postService.getPostImageUrl(post),
                 liked,
                 bookmarked,

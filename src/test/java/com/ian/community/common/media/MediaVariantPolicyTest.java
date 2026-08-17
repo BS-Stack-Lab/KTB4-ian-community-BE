@@ -97,6 +97,7 @@ class MediaVariantPolicyTest {
                 revision,
                 type,
                 "public/media/test/" + type.getKeyName() + ".webp",
+                "image/webp",
                 1024
         );
     }

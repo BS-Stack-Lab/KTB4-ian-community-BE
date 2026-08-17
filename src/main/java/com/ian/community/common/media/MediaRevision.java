@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.UUID;
 
 @Getter
 @Entity
@@ -67,6 +68,22 @@ public class MediaRevision {
     @Column(name = "transform_version", nullable = false)
     private int transformVersion;
 
+    @Column(name = "crop_pixel_width")
+    private Integer cropPixelWidth;
+
+    @Column(name = "crop_pixel_height")
+    private Integer cropPixelHeight;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "quality_level", length = 30)
+    private MediaQualityLevel qualityLevel;
+
+    @Column(name = "upscale_ratio_1x", precision = 8, scale = 4)
+    private BigDecimal upscaleRatio1x;
+
+    @Column(name = "operation_id", nullable = false)
+    private UUID operationId;
+
     @Column(name = "error_code", length = 80)
     private String errorCode;
 
@@ -104,6 +121,30 @@ public class MediaRevision {
             BigDecimal positionY,
             int transformVersion
     ) {
+        this(
+                mediaAsset, revision, status, frame, rotation,
+                cropX, cropY, cropWidth, cropHeight,
+                zoom, positionX, positionY, transformVersion,
+                UUID.randomUUID()
+        );
+    }
+
+    public MediaRevision(
+            MediaAsset mediaAsset,
+            int revision,
+            MediaStatus status,
+            MediaFrame frame,
+            int rotation,
+            BigDecimal cropX,
+            BigDecimal cropY,
+            BigDecimal cropWidth,
+            BigDecimal cropHeight,
+            BigDecimal zoom,
+            BigDecimal positionX,
+            BigDecimal positionY,
+            int transformVersion,
+            UUID operationId
+    ) {
         this.mediaAsset = mediaAsset;
         this.revision = revision;
         this.status = status;
@@ -117,6 +158,7 @@ public class MediaRevision {
         this.positionX = positionX;
         this.positionY = positionY;
         this.transformVersion = transformVersion;
+        this.operationId = operationId;
         this.createdAt = now();
         this.updatedAt = createdAt;
     }
@@ -136,7 +178,7 @@ public class MediaRevision {
         return new MediaRevision(
                 asset, 1, MediaStatus.PENDING_UPLOAD, asset.getFrame(), asset.getRotation(),
                 asset.getCropX(), asset.getCropY(), asset.getCropWidth(), asset.getCropHeight(),
-                zoom, positionX, positionY, asset.getTransformVersion()
+                zoom, positionX, positionY, asset.getTransformVersion(), asset.getOperationId()
         );
     }
 
@@ -172,6 +214,19 @@ public class MediaRevision {
             errorCode = null;
             touch();
         }
+    }
+
+    public void markReady(
+            int cropPixelWidth,
+            int cropPixelHeight,
+            MediaQualityLevel qualityLevel,
+            BigDecimal upscaleRatio1x
+    ) {
+        this.cropPixelWidth = cropPixelWidth;
+        this.cropPixelHeight = cropPixelHeight;
+        this.qualityLevel = qualityLevel;
+        this.upscaleRatio1x = upscaleRatio1x;
+        markReady();
     }
 
     public void markFailed(String code) {

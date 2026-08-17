@@ -95,6 +95,21 @@ class MediaServicePolicyTest {
     }
 
     @Test
+    void bmpIsAcceptedAsAReadOnlyFallbackInput() {
+        service.initiateUpload(1L, request(
+                MediaPurpose.POST,
+                MediaFrame.POST_PORTRAIT,
+                "camera.bmp",
+                "image/x-ms-bmp",
+                1024
+        ));
+
+        verify(storage).createUpload(
+                anyString(), eq("image/bmp"), eq(10L * 1024L * 1024L), any()
+        );
+    }
+
+    @Test
     void postMediaMustBeUniqueReadyOwnedAndLockedForAttachment() {
         MediaAsset ready = asset(1L, MediaPurpose.POST, MediaFrame.POST_LANDSCAPE);
         ready.markUploaded();
@@ -139,6 +154,27 @@ class MediaServicePolicyTest {
         assertCode(
                 ErrorCode.MEDIA_PURPOSE_MISMATCH,
                 () -> service.requireReadyMedia(1L, MediaPurpose.POST, List.of(profile.getMediaId()))
+        );
+    }
+
+    @Test
+    void asyncAttachmentAcceptsUploadedButSynchronousAttachmentDoesNot() {
+        MediaAsset uploaded = asset(1L, MediaPurpose.POST, MediaFrame.POST_LANDSCAPE);
+        uploaded.markUploaded();
+        when(assetRepository.findByIdForUpdate(uploaded.getMediaId()))
+                .thenReturn(Optional.of(uploaded));
+
+        assertEquals(
+                List.of(uploaded),
+                service.requireAttachableMedia(
+                        1L, MediaPurpose.POST, List.of(uploaded.getMediaId())
+                )
+        );
+        assertCode(
+                ErrorCode.MEDIA_NOT_READY,
+                () -> service.requireReadyMedia(
+                        1L, MediaPurpose.POST, List.of(uploaded.getMediaId())
+                )
         );
     }
 

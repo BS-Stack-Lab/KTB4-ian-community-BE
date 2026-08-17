@@ -70,6 +70,15 @@ public class MediaAsset {
     @Column(name = "source_height")
     private Integer sourceHeight;
 
+    @Column(name = "source_format", length = 20)
+    private String sourceFormat;
+
+    @Column(name = "output_content_type", length = 50)
+    private String outputContentType;
+
+    @Column(name = "operation_id", nullable = false)
+    private UUID operationId;
+
     @Column(name = "active_revision", nullable = false)
     private int mediaRevision;
 
@@ -111,6 +120,28 @@ public class MediaAsset {
             long declaredFileSize,
             int transformVersion
     ) {
+        this(
+                ownerUserId, purpose, frame, rotation,
+                cropX, cropY, cropWidth, cropHeight,
+                declaredContentType, declaredFileSize, transformVersion,
+                UUID.randomUUID()
+        );
+    }
+
+    public MediaAsset(
+            Long ownerUserId,
+            MediaPurpose purpose,
+            MediaFrame frame,
+            int rotation,
+            BigDecimal cropX,
+            BigDecimal cropY,
+            BigDecimal cropWidth,
+            BigDecimal cropHeight,
+            String declaredContentType,
+            long declaredFileSize,
+            int transformVersion,
+            UUID operationId
+    ) {
         this.mediaId = UUID.randomUUID();
         this.ownerUserId = ownerUserId;
         this.purpose = purpose;
@@ -127,6 +158,7 @@ public class MediaAsset {
         this.mediaRevision = 1;
         this.latestRevision = 1;
         this.transformVersion = transformVersion;
+        this.operationId = operationId;
         this.createdAt = now();
         this.updatedAt = createdAt;
     }
@@ -158,14 +190,26 @@ public class MediaAsset {
         return true;
     }
 
-    public void markReady(String masterKey, int width, int height) {
+    public void markReady(
+            String masterKey,
+            int width,
+            int height,
+            String sourceFormat,
+            String outputContentType
+    ) {
         this.masterKey = masterKey;
         this.sourceWidth = width;
         this.sourceHeight = height;
+        this.sourceFormat = sourceFormat;
+        this.outputContentType = outputContentType;
         this.status = MediaStatus.READY;
         this.leaseUntil = null;
         this.errorCode = null;
         touch();
+    }
+
+    public void markReady(String masterKey, int width, int height) {
+        markReady(masterKey, width, height, null, null);
     }
 
     public int allocateRevision() {
