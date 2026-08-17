@@ -41,6 +41,19 @@ public class PostControllerV2 {
                 .body(postService.createPostV2(user.getUserId(), request.content(), request.mediaIds()));
     }
 
+    @PostMapping("/me/async-media")
+    public ResponseEntity<PostV2Response> createAsyncMedia(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody PostCreateV2Request request
+    ) {
+        Post post = postService.createPostAsyncMedia(
+                user.getUserId(), request.content(), request.mediaIds()
+        );
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(
+                map(post, false, false, List.of())
+        );
+    }
+
     @PatchMapping("/{postId}")
     public ResponseEntity<Void> update(
             @AuthenticationPrincipal AuthenticatedUser user,
@@ -55,6 +68,27 @@ public class PostControllerV2 {
                 request.revisionActivations()
         );
         return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{postId}/async-media")
+    public ResponseEntity<PostV2Response> updateAsyncMedia(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable Long postId,
+            @Valid @RequestBody PostUpdateV2Request request
+    ) {
+        Post post = postService.updatePostAsyncMedia(
+                user.getUserId(),
+                postId,
+                request.content(),
+                request.mediaIds(),
+                request.revisionTargets()
+        );
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(map(
+                post,
+                postLikeService.isLiked(user.getUserId(), postId),
+                bookmarkService.existsBookmark(user.getUserId(), postId),
+                List.of()
+        ));
     }
 
     @GetMapping
@@ -136,6 +170,7 @@ public class PostControllerV2 {
                 post,
                 AuthorV2Response.from(post.getAuthorUser(), profile),
                 postService.getPostMedia(post),
+                postService.getPostMediaAttachments(post),
                 postService.getPostImageUrl(post),
                 liked,
                 bookmarked,

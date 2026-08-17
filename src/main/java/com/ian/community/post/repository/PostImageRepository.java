@@ -23,5 +23,15 @@ public interface PostImageRepository extends JpaRepository<PostImage, Long> {
 
     boolean existsByMediaAssetMediaId(UUID mediaId);
 
-    long countByMediaAssetIsNull();
+    boolean existsByPendingMediaMediaId(UUID mediaId);
+
+    List<PostImage> findAllByPendingMediaMediaId(UUID mediaId);
+
+    List<PostImage> findAllByPendingMediaMediaIdAndPendingRevisionAndMediaOperationId(
+            UUID mediaId,
+            int revision,
+            UUID operationId
+    );
+
+    long countByMediaAssetIsNullAndPendingMediaIsNull();
 }

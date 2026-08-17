@@ -196,7 +196,7 @@ class MediaPipelineE2ETest {
         assertEquals(288, ready.path("variants").get(0).path("height").asInt());
         assertEquals(1344, ready.path("variants").get(1).path("width").asInt());
         assertEquals(864, ready.path("variants").get(1).path("height").asInt());
-        assertWebpVariants(mediaId, 1, Map.of(448, 288, 1344, 864));
+        assertPngVariants(mediaId, 1, Map.of(448, 288, 1344, 864));
         if (awsMode) assertCloudFrontDelivery(mediaId);
         assertSourceWasRemoved(mediaId);
 
@@ -204,7 +204,7 @@ class MediaPipelineE2ETest {
         await("duplicate S3 event consumption", Duration.ofSeconds(20), () ->
                 approximateMessages(queueUrl) == 0
         );
-        assertWebpVariants(mediaId, 1, Map.of(448, 288, 1344, 864));
+        assertPngVariants(mediaId, 1, Map.of(448, 288, 1344, 864));
 
         JsonNode revision = mutate(
                 "POST", "/api/v2/media/" + mediaId + "/revisions",
@@ -228,7 +228,7 @@ class MediaPipelineE2ETest {
         assertEquals(288, readyRevision.path("variants").get(0).path("height").asInt());
         assertEquals(1344, readyRevision.path("variants").get(1).path("width").asInt());
         assertEquals(864, readyRevision.path("variants").get(1).path("height").asInt());
-        assertWebpVariants(
+        assertPngVariants(
                 mediaId, revisionNumber, Map.of(448, 288, 1344, 864)
         );
         assertEquals(1, getJson("/api/v2/media/" + mediaId, 200)
@@ -242,7 +242,7 @@ class MediaPipelineE2ETest {
                 revisionKeys.stream().noneMatch(this::objectExists)
         );
 
-        String masterKey = "private/media/" + mediaId + "/master.r1.t1.webp";
+        String masterKey = "private/media/" + mediaId + "/original";
         s3.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(masterKey).build());
         JsonNode failedRevision = mutate(
                 "POST", "/api/v2/media/" + mediaId + "/revisions",
@@ -599,37 +599,36 @@ class MediaPipelineE2ETest {
         return output.toByteArray();
     }
 
-    private void assertWebpVariants(
+    private void assertPngVariants(
             UUID mediaId,
             int revision,
             Map<Integer, Integer> expectedDimensions
-    ) {
+    ) throws Exception {
         List<String> keys = variantKeys(mediaId, revision);
         assertEquals(expectedDimensions.size(), keys.size());
         Map<Integer, Integer> actualDimensions = new LinkedHashMap<>();
         for (String key : keys) {
+            assertTrue(key.endsWith(".png"));
             byte[] value = s3.getObjectAsBytes(GetObjectRequest.builder()
                             .bucket(bucket).key(key).build())
                     .asByteArray();
-            assertTrue(value.length > 12);
-            assertEquals("RIFF", new String(value, 0, 4, StandardCharsets.US_ASCII));
-            assertEquals("WEBP", new String(value, 8, 4, StandardCharsets.US_ASCII));
-            assertEquals("VP8 ", new String(value, 12, 4, StandardCharsets.US_ASCII));
-            assertTrue(value.length >= 30);
-            int width = (value[26] & 0xff) | ((value[27] & 0x3f) << 8);
-            int height = (value[28] & 0xff) | ((value[29] & 0x3f) << 8);
-            actualDimensions.put(width, height);
+            assertTrue(value.length > 8);
+            assertEquals((byte) 0x89, value[0]);
+            assertEquals("PNG", new String(value, 1, 3, StandardCharsets.US_ASCII));
+            BufferedImage image = ImageIO.read(new java.io.ByteArrayInputStream(value));
+            assertTrue(image != null);
+            actualDimensions.put(image.getWidth(), image.getHeight());
         }
         assertEquals(expectedDimensions, actualDimensions);
     }
 
     private List<String> variantKeys(UUID mediaId, int revision) {
-        String marker = ".r" + revision + ".t1.webp";
+        String marker = ".r" + revision + ".t1.";
         return s3.listObjectsV2(ListObjectsV2Request.builder()
                         .bucket(bucket).prefix("public/media/" + mediaId + "/").build())
                 .contents().stream()
                 .map(S3Object::key)
-                .filter(key -> key.endsWith(marker))
+                .filter(key -> key.contains(marker))
                 .sorted()
                 .toList();
     }
@@ -692,7 +691,7 @@ class MediaPipelineE2ETest {
         try {
             HttpResponse<Void> privateResponse = HttpClient.newHttpClient().send(
                     HttpRequest.newBuilder(URI.create(cdnBase
-                                    + "/private/media/" + mediaId + "/master.r1.t1.webp"))
+                                    + "/private/media/" + mediaId + "/original"))
                             .GET().build(),
                     HttpResponse.BodyHandlers.discarding()
             );
