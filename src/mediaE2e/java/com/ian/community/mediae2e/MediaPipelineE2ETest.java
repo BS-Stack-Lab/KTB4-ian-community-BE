@@ -628,7 +628,7 @@ class MediaPipelineE2ETest {
                         .bucket(bucket).prefix("public/media/" + mediaId + "/").build())
                 .contents().stream()
                 .map(S3Object::key)
-                .filter(key -> key.endsWith(marker))
+                .filter(key -> key.contains(marker))
                 .sorted()
                 .toList();
     }
