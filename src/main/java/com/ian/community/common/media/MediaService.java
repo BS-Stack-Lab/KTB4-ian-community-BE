@@ -21,11 +21,14 @@ import java.util.*;
 public class MediaService {
     private static final long PROFILE_MAX_SIZE = 1024L * 1024L;
     private static final long POST_MAX_SIZE = 10L * 1024L * 1024L;
-    private static final Set<String> CONTENT_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
+    private static final Set<String> CONTENT_TYPES = Set.of(
+            "image/jpeg", "image/png", "image/webp", "image/bmp"
+    );
     private static final Map<String, Set<String>> EXTENSIONS = Map.of(
             "image/jpeg", Set.of("jpg", "jpeg"),
             "image/png", Set.of("png"),
-            "image/webp", Set.of("webp")
+            "image/webp", Set.of("webp"),
+            "image/bmp", Set.of("bmp")
     );
 
     private final MediaAssetRepository mediaAssetRepository;
@@ -39,6 +42,7 @@ public class MediaService {
     @Transactional
     public MediaUploadResponse initiateUpload(Long userId, MediaUploadRequest request) {
         validateUpload(request);
+        String contentType = canonicalContentType(request.contentType());
         MediaAsset asset = new MediaAsset(
                 userId,
                 request.purpose(),
@@ -48,9 +52,10 @@ public class MediaService {
                 request.crop().y(),
                 request.crop().width(),
                 request.crop().height(),
-                request.contentType(),
+                contentType,
                 request.fileSize(),
-                properties.transformVersion()
+                properties.transformVersion(),
+                request.operationId()
         );
         mediaAssetRepository.save(asset);
         mediaRevisionRepository.save(MediaRevision.initial(
@@ -62,7 +67,7 @@ public class MediaService {
         long maximumSize = maximumSize(request.purpose());
         PresignedPostResponse upload = mediaObjectStorage.createUpload(
                 asset.getSourceKey(),
-                request.contentType(),
+                contentType,
                 maximumSize,
                 Duration.ofSeconds(properties.uploadExpirationSeconds())
         );
@@ -119,6 +124,7 @@ public class MediaService {
 
     private boolean isReferenced(UUID mediaId) {
         return postImageRepository.existsByMediaAssetMediaId(mediaId)
+                || postImageRepository.existsByPendingMediaMediaId(mediaId)
                 || userRepository.existsByProfileMediaMediaId(mediaId);
     }
 
@@ -166,6 +172,30 @@ public class MediaService {
                 throw new CustomException(ErrorCode.MEDIA_PURPOSE_MISMATCH);
             }
             if (asset.getStatus() != MediaStatus.READY) {
+                throw new CustomException(ErrorCode.MEDIA_NOT_READY);
+            }
+        }
+        return assets;
+    }
+
+    public List<MediaAsset> requireAttachableMedia(
+            Long ownerUserId,
+            MediaPurpose purpose,
+            List<UUID> mediaIds
+    ) {
+        List<UUID> ids = mediaIds == null ? List.of() : List.copyOf(mediaIds);
+        if (ids.size() > 5 || new HashSet<>(ids).size() != ids.size()) {
+            throw new CustomException(ErrorCode.INVALID_POST_REQUEST);
+        }
+        List<MediaAsset> assets = ids.stream()
+                .map(id -> findOwnedForUpdate(ownerUserId, id))
+                .toList();
+        for (MediaAsset asset : assets) {
+            if (asset.getPurpose() != purpose) {
+                throw new CustomException(ErrorCode.MEDIA_PURPOSE_MISMATCH);
+            }
+            if (!Set.of(MediaStatus.UPLOADED, MediaStatus.PROCESSING, MediaStatus.READY)
+                    .contains(asset.getStatus())) {
                 throw new CustomException(ErrorCode.MEDIA_NOT_READY);
             }
         }
@@ -238,11 +268,12 @@ public class MediaService {
         if (!properties.enabled()) {
             throw new CustomException(ErrorCode.MEDIA_V2_DISABLED);
         }
-        if (!CONTENT_TYPES.contains(request.contentType())) {
+        String contentType = canonicalContentType(request.contentType());
+        if (!CONTENT_TYPES.contains(contentType)) {
             throw new CustomException(ErrorCode.UNSUPPORTED_IMAGE_TYPE);
         }
         String extension = extension(request.fileName());
-        if (!EXTENSIONS.get(request.contentType()).contains(extension)) {
+        if (!EXTENSIONS.get(contentType).contains(extension)) {
             throw new CustomException(ErrorCode.UNSUPPORTED_IMAGE_TYPE);
         }
         if (request.fileSize() > maximumSize(request.purpose())) {
@@ -277,6 +308,10 @@ public class MediaService {
     private String extension(String fileName) {
         int separator = fileName.lastIndexOf('.');
         return separator < 0 ? "" : fileName.substring(separator + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private String canonicalContentType(String contentType) {
+        return "image/x-ms-bmp".equals(contentType) ? "image/bmp" : contentType;
     }
 
     private String publicUrl(String objectKey) {

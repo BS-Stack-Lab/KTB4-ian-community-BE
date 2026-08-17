@@ -10,6 +10,7 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 public record MediaUploadRequest(
         @NotNull MediaPurpose purpose,
@@ -20,8 +21,13 @@ public record MediaUploadRequest(
         int rotation,
         @NotNull @Valid CropRectRequest crop,
         @NotNull @DecimalMin("1.0") @DecimalMax("3.0") BigDecimal zoom,
-        @NotNull @Valid MediaPositionRequest position
+        @NotNull @Valid MediaPositionRequest position,
+        UUID operationId
 ) {
+    public MediaUploadRequest {
+        operationId = operationId == null ? UUID.randomUUID() : operationId;
+    }
+
     public MediaUploadRequest(
             MediaPurpose purpose,
             String fileName,
@@ -37,7 +43,8 @@ public record MediaUploadRequest(
                 new MediaPositionRequest(
                         crop.x().add(crop.width().divide(BigDecimal.valueOf(2))),
                         crop.y().add(crop.height().divide(BigDecimal.valueOf(2)))
-                )
+                ),
+                null
         );
     }
 }

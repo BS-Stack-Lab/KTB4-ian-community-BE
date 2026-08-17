@@ -2,10 +2,13 @@ package com.ian.community.common.media.worker;
 
 import com.ian.community.common.exception.ErrorCode;
 import com.ian.community.common.media.*;
+import com.ian.community.post.domain.PostImage;
+import com.ian.community.post.repository.PostImageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -17,6 +20,8 @@ public class MediaProcessingTransactions {
     private final MediaAssetRepository mediaAssetRepository;
     private final MediaVariantRepository mediaVariantRepository;
     private final MediaRevisionRepository mediaRevisionRepository;
+    private final PostImageRepository postImageRepository;
+    private final MediaProperties properties;
 
     @Transactional(readOnly = true)
     public ProcessingClaim find(UUID mediaId, int revisionNumber) {
@@ -63,6 +68,12 @@ public class MediaProcessingTransactions {
             String masterKey,
             int width,
             int height,
+            String sourceFormat,
+            String outputContentType,
+            int cropPixelWidth,
+            int cropPixelHeight,
+            MediaQualityLevel qualityLevel,
+            BigDecimal upscaleRatio1x,
             List<StoredVariant> variants
     ) {
         MediaAsset asset = mediaAssetRepository.findByIdForUpdate(mediaId).orElseThrow();
@@ -78,12 +89,33 @@ public class MediaProcessingTransactions {
                 mediaId, revisionNumber
         );
         variants.forEach(variant -> mediaVariantRepository.save(new MediaVariant(
-                asset, revision, variant.type(), variant.objectKey(), variant.fileSize()
+                asset,
+                revision,
+                variant.type(),
+                variant.objectKey(),
+                variant.mimeType(),
+                variant.fileSize()
         )));
-        revision.markReady();
+        revision.markReady(
+                cropPixelWidth,
+                cropPixelHeight,
+                qualityLevel,
+                upscaleRatio1x
+        );
         if (revisionNumber == 1) {
-            asset.markReady(masterKey, width, height);
+            asset.markReady(masterKey, width, height, sourceFormat, outputContentType);
             revision.markActivated();
+        }
+        List<PostImage> pending = postImageRepository
+                .findAllByPendingMediaMediaIdAndPendingRevisionAndMediaOperationId(
+                        mediaId, revisionNumber, revision.getOperationId()
+                );
+        if (!pending.isEmpty() && revisionNumber > 1) {
+            asset.activate(revision);
+        }
+        if (!pending.isEmpty()) {
+            String url = compatibilityUrl(revision, variants);
+            pending.forEach(image -> image.promotePending(url));
         }
         return true;
     }
@@ -96,9 +128,43 @@ public class MediaProcessingTransactions {
             mediaAssetRepository.findByIdForUpdate(mediaId)
                     .ifPresent(asset -> asset.markFailed(errorCode.getCode()));
         }
+        postImageRepository
+                .findAllByPendingMediaMediaIdAndPendingRevisionAndMediaOperationId(
+                        mediaId, revisionNumber,
+                        mediaRevisionRepository
+                                .findByMediaAssetMediaIdAndRevision(mediaId, revisionNumber)
+                                .map(MediaRevision::getOperationId)
+                                .orElse(new UUID(0, 0))
+                )
+                .forEach(image -> image.failPending(errorCode.getCode()));
+    }
+
+    private String compatibilityUrl(MediaRevision revision, List<StoredVariant> variants) {
+        MediaVariantType preferred = revision.getMediaAsset().getPurpose() == MediaPurpose.PROFILE
+                ? MediaVariantType.PROFILE_MEDIUM
+                : revision.getFrame() == MediaFrame.POST_PORTRAIT
+                ? MediaVariantType.POST_PORTRAIT_1X
+                : MediaVariantType.POST_LANDSCAPE_1X;
+        String key = variants.stream()
+                .filter(variant -> variant.type() == preferred)
+                .findFirst()
+                .orElseGet(variants::getFirst)
+                .objectKey();
+        String base = properties.cdnBaseUrl() == null
+                ? ""
+                : properties.cdnBaseUrl().replaceAll("/+$", "");
+        String path = key.startsWith("public/")
+                ? key.substring("public/".length())
+                : key;
+        return base + "/" + path;
     }
 
     public record ProcessingClaim(MediaAsset asset, MediaRevision revision) {}
 
-    public record StoredVariant(MediaVariantType type, String objectKey, long fileSize) {}
+    public record StoredVariant(
+            MediaVariantType type,
+            String objectKey,
+            String mimeType,
+            long fileSize
+    ) {}
 }

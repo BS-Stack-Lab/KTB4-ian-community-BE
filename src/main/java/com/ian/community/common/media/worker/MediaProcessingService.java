@@ -50,32 +50,34 @@ public class MediaProcessingService {
                     ? transformEngine.transform(asset, source, directory)
                     : transformEngine.transformRevision(revision, source, directory);
 
-            String masterKey = "private/media/" + mediaId + "/master.r"
-                    + 1 + ".t" + revision.getTransformVersion() + ".webp";
+            // Copy the exact upload bytes out of the one-day temporary upload prefix.
+            // The private original is the edit source for every later revision.
+            String masterKey = initialRevision
+                    ? "private/media/" + mediaId + "/original"
+                    : asset.getMasterKey();
             if (initialRevision) {
                 objectStorage.putImmutable(
                         masterKey,
-                        transformed.masterPath(),
-                        "image/webp",
+                        source,
+                        asset.getDeclaredContentType(),
                         "private, no-store"
                 );
-            } else {
-                masterKey = asset.getMasterKey();
             }
 
             List<MediaProcessingTransactions.StoredVariant> stored = new ArrayList<>();
             for (TransformedVariant variant : transformed.variants()) {
                 String key = "public/media/" + mediaId + "/" + variant.type().getKeyName()
                         + ".r" + revisionNumber + ".t"
-                        + revision.getTransformVersion() + ".webp";
+                        + revision.getTransformVersion() + "."
+                        + variant.outputFormat().extension();
                 objectStorage.putImmutable(
                         key,
                         variant.path(),
-                        "image/webp",
+                        variant.outputFormat().mimeType(),
                         "public, max-age=31536000, immutable"
                 );
                 stored.add(new MediaProcessingTransactions.StoredVariant(
-                        variant.type(), key, variant.fileSize()
+                        variant.type(), key, variant.outputFormat().mimeType(), variant.fileSize()
                 ));
             }
             boolean committed = transactions.complete(
@@ -84,21 +86,23 @@ public class MediaProcessingService {
                     masterKey,
                     transformed.masterWidth(),
                     transformed.masterHeight(),
+                    transformed.sourceFormat(),
+                    transformed.outputFormat().mimeType(),
+                    transformed.cropPixelWidth(),
+                    transformed.cropPixelHeight(),
+                    transformed.qualityLevel(),
+                    transformed.upscaleRatio1x(),
                     stored
             );
             if (!committed) {
                 deleteOutputs(asset, revision);
-            }
-            if (initialRevision) {
+            } else if (initialRevision) {
                 safeDelete(asset.getSourceKey());
             }
         } catch (PermanentMediaProcessingException exception) {
             deleteOutputs(asset, revision);
             transactions.fail(mediaId, revisionNumber, exception.getErrorCode());
             mediaMetrics.recordProcessingFailure();
-            if (initialRevision) {
-                safeDelete(asset.getSourceKey());
-            }
             throw exception;
         } catch (IOException exception) {
             throw new IllegalStateException("Unable to prepare media scratch directory", exception);
@@ -113,22 +117,22 @@ public class MediaProcessingService {
         );
         if (claim != null) {
             deleteOutputs(claim.asset(), claim.revision());
-            if (revisionNumber == 1) {
-                safeDelete(claim.asset().getSourceKey());
-            }
         }
         transactions.fail(mediaId, revisionNumber, ErrorCode.PROCESSING_RETRY_EXHAUSTED);
         mediaMetrics.recordProcessingFailure();
     }
 
     private void deleteOutputs(MediaAsset asset, MediaRevision revision) {
-        String suffix = ".r" + revision.getRevision()
-                + ".t" + revision.getTransformVersion() + ".webp";
+        String prefix = ".r" + revision.getRevision()
+                + ".t" + revision.getTransformVersion() + ".";
         if (revision.getRevision() == 1 && asset.getMasterKey() == null) {
-            safeDelete("private/media/" + asset.getMediaId() + "/master" + suffix);
+            safeDelete("private/media/" + asset.getMediaId() + "/original");
         }
         for (var type : com.ian.community.common.media.MediaVariantType.forFrame(revision.getFrame())) {
-            safeDelete("public/media/" + asset.getMediaId() + "/" + type.getKeyName() + suffix);
+            for (String extension : List.of("jpg", "jpeg", "png", "webp")) {
+                safeDelete("public/media/" + asset.getMediaId() + "/"
+                        + type.getKeyName() + prefix + extension);
+            }
         }
         try {
             objectStorage.invalidate(List.of("/media/" + asset.getMediaId() + "/*"));

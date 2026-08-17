@@ -58,6 +58,7 @@ public class MediaVariant {
             MediaRevision revision,
             MediaVariantType variantType,
             String objectKey,
+            String mimeType,
             long fileSize
     ) {
         this.mediaAsset = mediaAsset;
@@ -65,7 +66,7 @@ public class MediaVariant {
         this.objectKey = objectKey;
         this.width = variantType.getWidth();
         this.height = variantType.getHeight();
-        this.mimeType = "image/webp";
+        this.mimeType = mimeType;
         this.fileSize = fileSize;
         this.mediaRevision = revision.getRevision();
         this.transformVersion = revision.getTransformVersion();

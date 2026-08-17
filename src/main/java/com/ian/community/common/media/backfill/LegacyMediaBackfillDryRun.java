@@ -26,7 +26,7 @@ public class LegacyMediaBackfillDryRun implements ApplicationRunner {
     @Override
     @Transactional(readOnly = true)
     public void run(ApplicationArguments arguments) {
-        long postCandidates = postImageRepository.countByMediaAssetIsNull();
+        long postCandidates = postImageRepository.countByMediaAssetIsNullAndPendingMediaIsNull();
         long profileCandidates = userRepository.countByProfileMediaIsNull();
         log.info(
                 "MEDIA_BACKFILL_DRY_RUN postCandidates={} profileCandidates={} mutations=0",

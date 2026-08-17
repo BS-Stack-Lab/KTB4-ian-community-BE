@@ -3,11 +3,13 @@ package com.ian.community.post.service;
 import com.ian.community.common.exception.CustomException;
 import com.ian.community.common.exception.ErrorCode;
 import com.ian.community.common.media.MediaAsset;
+import com.ian.community.common.media.MediaStatus;
 import com.ian.community.common.media.MediaRevisionService;
 import com.ian.community.common.media.MediaService;
 import com.ian.community.common.media.dto.MediaRevisionActivationRequest;
 import com.ian.community.post.domain.Post;
 import com.ian.community.post.domain.PostImage;
+import com.ian.community.post.domain.PostImageMediaState;
 import com.ian.community.post.repository.PostImageRepository;
 import com.ian.community.post.repository.PostRepository;
 import com.ian.community.post.repository.PostViewRepository;
@@ -15,6 +17,7 @@ import com.ian.community.user.domain.User;
 import com.ian.community.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Optional;
@@ -138,5 +141,26 @@ class PostServiceTest {
 
         assertEquals(ErrorCode.NO_CHANGES_DETECTED, exception.getErrorCode());
         verify(revisionService, never()).activate(any(), any(), anyInt());
+    }
+
+    @Test
+    void asyncCreateStoresUploadedMediaAsProcessingAttachment() {
+        MediaAsset media = mock(MediaAsset.class);
+        UUID mediaId = UUID.randomUUID();
+        when(media.getMediaId()).thenReturn(mediaId);
+        when(media.getStatus()).thenReturn(MediaStatus.UPLOADED);
+        when(mediaService.requireAttachableMedia(
+                1L,
+                com.ian.community.common.media.MediaPurpose.POST,
+                List.of(mediaId)
+        )).thenReturn(List.of(media));
+        when(postRepository.save(any(Post.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.createPostAsyncMedia(1L, "본문", List.of(mediaId));
+
+        ArgumentCaptor<PostImage> image = ArgumentCaptor.forClass(PostImage.class);
+        verify(imageRepository).save(image.capture());
+        assertEquals(PostImageMediaState.PROCESSING, image.getValue().getMediaState());
+        assertEquals(mediaId, image.getValue().getPendingMedia().getMediaId());
     }
 }

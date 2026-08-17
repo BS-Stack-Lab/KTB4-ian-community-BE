@@ -51,7 +51,8 @@ public class MediaRevisionService {
                 request.zoom(),
                 request.position().x(),
                 request.position().y(),
-                properties.transformVersion()
+                properties.transformVersion(),
+                request.operationId()
         );
         mediaRevisionRepository.save(revision);
         return toResponse(revision);
@@ -67,6 +68,20 @@ public class MediaRevisionService {
     public MediaRevisionResponse get(Long userId, UUID mediaId, int revisionNumber) {
         MediaAsset asset = findOwnedAsset(userId, mediaId);
         return toResponse(findRevision(asset, revisionNumber));
+    }
+
+    public MediaRevision requireAttachableRevision(
+            Long userId,
+            UUID mediaId,
+            int revisionNumber
+    ) {
+        MediaAsset asset = findOwnedAsset(userId, mediaId);
+        MediaRevision revision = findRevision(asset, revisionNumber);
+        if (!Set.of(MediaStatus.UPLOADED, MediaStatus.PROCESSING, MediaStatus.READY)
+                .contains(revision.getStatus())) {
+            throw new CustomException(ErrorCode.MEDIA_REVISION_NOT_READY);
+        }
+        return revision;
     }
 
     public MediaEditSourceResponse editSource(Long userId, UUID mediaId) {

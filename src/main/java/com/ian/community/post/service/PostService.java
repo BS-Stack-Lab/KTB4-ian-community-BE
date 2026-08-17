@@ -7,9 +7,11 @@ import com.ian.community.common.media.MediaPurpose;
 import com.ian.community.common.media.MediaService;
 import com.ian.community.common.media.MediaRevisionService;
 import com.ian.community.common.media.dto.MediaRevisionActivationRequest;
+import com.ian.community.common.media.dto.MediaRevisionTargetRequest;
 import com.ian.community.common.media.dto.MediaResponse;
 import com.ian.community.post.domain.Post;
 import com.ian.community.post.domain.PostImage;
+import com.ian.community.post.dto.response.PostMediaAttachmentResponse;
 import com.ian.community.post.domain.PostView;
 import com.ian.community.post.repository.PostImageRepository;
 import com.ian.community.post.repository.PostRepository;
@@ -74,6 +76,23 @@ public class PostService {
         return savedPost.getPostId();
     }
 
+    @Transactional
+    public Post createPostAsyncMedia(Long userId, String content, List<UUID> mediaIds) {
+        User user = getActiveUser(userId);
+        List<MediaAsset> media = mediaService.requireAttachableMedia(
+                userId, MediaPurpose.POST, mediaIds
+        );
+        Post savedPost = postRepository.save(new Post(user, content));
+        for (int index = 0; index < media.size(); index++) {
+            MediaAsset asset = media.get(index);
+            PostImage image = asset.getStatus() == com.ian.community.common.media.MediaStatus.READY
+                    ? new PostImage(savedPost, mediaService.compatibilityUrl(asset), asset, index)
+                    : PostImage.pending(savedPost, asset, index, asset.getOperationId());
+            postImageRepository.save(image);
+        }
+        return savedPost;
+    }
+
     public Slice<Post> getPosts(Pageable pageable) {
         return postRepository
                 .findAllByPostDeletedFalseOrderByCreatedAtDescPostIdDesc(
@@ -97,6 +116,26 @@ public class PostService {
                 .map(PostImage::getMediaAsset)
                 .filter(java.util.Objects::nonNull)
                 .map(mediaService::toResponse)
+                .toList();
+    }
+
+    public List<PostMediaAttachmentResponse> getPostMediaAttachments(Post post) {
+        return postImageRepository.findAllByAuthorPostOrderByDisplayOrderAsc(post)
+                .stream()
+                .map(image -> new PostMediaAttachmentResponse(
+                        image.getDisplayOrder(),
+                        image.getMediaState(),
+                        image.getMediaAsset() == null
+                                ? null
+                                : mediaService.toResponse(image.getMediaAsset()),
+                        image.getPendingMedia() == null
+                                ? null
+                                : image.getPendingMedia().getMediaId(),
+                        image.getPendingMedia() == null
+                                ? null
+                                : image.getPendingMedia().getFrame(),
+                        image.getMediaErrorCode()
+                ))
                 .toList();
     }
 
@@ -191,6 +230,85 @@ public class PostService {
         previousMediaIds.stream()
                 .filter(previousId -> !retained.contains(previousId))
                 .forEach(previousId -> mediaService.deleteIfUnreferenced(userId, previousId));
+    }
+
+    @Transactional
+    public Post updatePostAsyncMedia(
+            Long userId,
+            Long postId,
+            String content,
+            List<UUID> mediaIds,
+            List<MediaRevisionTargetRequest> revisionTargets
+    ) {
+        User user = getActiveUser(userId);
+        Post post = getActivePost(postId);
+        validatePostOwner(post, user);
+        List<PostImage> images = new java.util.ArrayList<>(postImageRepository
+                .findAllByAuthorPostOrderByDisplayOrderAsc(post));
+        List<MediaAsset> targetMedia = mediaService.requireAttachableMedia(
+                userId, MediaPurpose.POST, mediaIds
+        );
+        java.util.Map<UUID, MediaRevisionTargetRequest> revisions = revisionTargets.stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        MediaRevisionTargetRequest::mediaId,
+                        activation -> activation,
+                        (left, right) -> {
+                            throw new CustomException(ErrorCode.INVALID_POST_REQUEST);
+                        }
+                ));
+        if (!new java.util.HashSet<>(mediaIds).containsAll(revisions.keySet())) {
+            throw new CustomException(ErrorCode.INVALID_POST_REQUEST);
+        }
+        Set<UUID> previousMediaIds = images.stream()
+                .flatMap(image -> java.util.stream.Stream.of(
+                        image.getMediaAsset(), image.getPendingMedia()
+                ))
+                .filter(java.util.Objects::nonNull)
+                .map(MediaAsset::getMediaId)
+                .collect(java.util.stream.Collectors.toSet());
+
+        post.update(content);
+        for (int index = 0; index < targetMedia.size(); index++) {
+            MediaAsset asset = targetMedia.get(index);
+            PostImage image = index < images.size()
+                    ? images.get(index)
+                    : PostImage.pending(post, asset, index, asset.getOperationId());
+            MediaRevisionTargetRequest revisionTarget = revisions.get(asset.getMediaId());
+            if (revisionTarget != null) {
+                var revision = mediaRevisionService.requireAttachableRevision(
+                        userId, asset.getMediaId(), revisionTarget.revision()
+                );
+                if (!revision.getOperationId().equals(revisionTarget.operationId())) {
+                    throw new CustomException(ErrorCode.INVALID_POST_REQUEST);
+                }
+                if (revision.getStatus() == com.ian.community.common.media.MediaStatus.READY) {
+                    mediaRevisionService.activate(userId, asset.getMediaId(), revision.getRevision());
+                    image.replaceWithReady(mediaService.compatibilityUrl(asset), asset, index);
+                } else {
+                    image.requestRevision(
+                            asset,
+                            revision.getRevision(),
+                            revisionTarget.operationId()
+                    );
+                }
+            } else if (asset.getStatus() == com.ian.community.common.media.MediaStatus.READY) {
+                image.replaceWithReady(mediaService.compatibilityUrl(asset), asset, index);
+            } else {
+                image.replaceWithPending(asset, index, asset.getOperationId());
+            }
+            if (index >= images.size()) {
+                postImageRepository.save(image);
+            }
+        }
+        if (images.size() > targetMedia.size()) {
+            images.subList(targetMedia.size(), images.size()).forEach(postImageRepository::delete);
+        }
+        postImageRepository.flush();
+        Set<UUID> retained = new java.util.HashSet<>(mediaIds);
+        previousMediaIds.stream()
+                .filter(mediaId -> !retained.contains(mediaId))
+                .forEach(mediaId -> mediaService.deleteIfUnreferenced(userId, mediaId));
+        return post;
     }
 
     private void validateRevisionActivations(

@@ -4,4 +4,9 @@ import com.ian.community.common.media.MediaVariantType;
 
 import java.nio.file.Path;
 
-public record TransformedVariant(MediaVariantType type, Path path, long fileSize) {}
+public record TransformedVariant(
+        MediaVariantType type,
+        Path path,
+        long fileSize,
+        MediaOutputFormat outputFormat
+) {}
