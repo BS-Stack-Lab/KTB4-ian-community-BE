@@ -6,7 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Slice;
 
 import java.util.Optional;
@@ -20,7 +19,10 @@ public interface PostRepository extends JpaRepository<Post, Long>  {
     Slice<Post> findAllByPostDeletedFalseOrderByCreatedAtDescPostIdDesc(Pageable pageable);
 
     @EntityGraph(attributePaths = {"authorUser", "authorUser.profileMedia"})
-    Page<Post> findAllByAuthorUser_UserIdAndPostDeletedFalse(Long userId, Pageable pageable); // 특정 유저의 삭제되지 않은 게시글 목록 조회
+    Slice<Post> findAllByAuthorUser_UserIdAndPostDeletedFalseOrderByCreatedAtDescPostIdDesc(
+            Long userId,
+            Pageable pageable
+    );
 
     boolean existsByPostIdAndPostDeletedFalse(Long postId); // 삭제되지 않은 게시글 존재 여부 확인
 }

@@ -17,7 +17,6 @@ import com.ian.community.post.repository.PostViewRepository;
 import com.ian.community.user.domain.User;
 import com.ian.community.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
@@ -100,13 +99,14 @@ public class PostService {
                 .toList();
     }
 
-    public Page<Post> getPostsByUser(Long userId, Pageable pageable) {
+    public Slice<Post> getPostsByUser(Long userId, Pageable pageable) {
         getActiveUser(userId);
 
-        return postRepository.findAllByAuthorUser_UserIdAndPostDeletedFalse(
-                userId,
-                pageable
-        );
+        return postRepository
+                .findAllByAuthorUser_UserIdAndPostDeletedFalseOrderByCreatedAtDescPostIdDesc(
+                        userId,
+                        pageable
+                );
     }
 
     @Transactional

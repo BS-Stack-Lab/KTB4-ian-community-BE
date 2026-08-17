@@ -6,6 +6,7 @@ public enum ErrorCode {
     // 회원
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
     USER_ALREADY_DELETED(HttpStatus.CONFLICT, "탈퇴한 사용자입니다."),
+    SELF_FOLLOW_NOT_ALLOWED(HttpStatus.CONFLICT, "본인은 팔로우할 수 없습니다."),
 
     // 회원가입
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
