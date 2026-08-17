@@ -29,8 +29,8 @@ class MigrationIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    @DisplayName("Flyway 전체 Migration은 Bookmark 제약과 Index를 생성한다")
-    void migrateBookmarkSchema() {
+    @DisplayName("Flyway 전체 Migration은 Bookmark와 Follow 스키마를 생성한다")
+    void migrateSchema() {
         Integer tableCount = jdbcTemplate.queryForObject(
                 """
                 select count(*)
@@ -56,9 +56,31 @@ class MigrationIntegrationTest {
                 """,
                 Integer.class
         );
+        Integer followTableCount = jdbcTemplate.queryForObject(
+                """
+                select count(*)
+                from information_schema.tables
+                where table_name in (
+                    'USER_FOLLOWS',
+                    'USER_FOLLOW_COUNTS',
+                    'FOLLOW_COUNT_OUTBOX'
+                )
+                """,
+                Integer.class
+        );
+        Integer followConstraintCount = jdbcTemplate.queryForObject(
+                """
+                select count(*)
+                from information_schema.table_constraints
+                where constraint_name = 'UK_USER_FOLLOWS_FOLLOWER_FOLLOWING'
+                """,
+                Integer.class
+        );
 
         assertThat(tableCount).isOne();
         assertThat(constraintCount).isOne();
         assertThat(activeLegacyUserCount).isZero();
+        assertThat(followTableCount).isEqualTo(3);
+        assertThat(followConstraintCount).isOne();
     }
 }

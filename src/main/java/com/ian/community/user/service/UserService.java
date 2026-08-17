@@ -11,6 +11,7 @@ import com.ian.community.user.dto.request.*;
 import com.ian.community.user.dto.response.UserResponse;
 import com.ian.community.user.dto.response.ProfileMediaResponse;
 import com.ian.community.user.repository.UserRepository;
+import com.ian.community.user.follow.service.FollowService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final MediaService mediaService;
+    private final FollowService followService;
 
     private User getActiveUser(Long userId) {
         User user = userRepository.findById(userId)
@@ -221,6 +223,7 @@ public class UserService {
     public void deleteUser(Long userId) {
         User user = getActiveUser(userId);
 
+        followService.deleteAllForUser(userId);
         user.delete();
     }
 }
